@@ -14,6 +14,7 @@ import '../../data/updates/update_config.dart';
 import '../../domain/enums/app_enums.dart';
 import '../../domain/models/ai_settings.dart';
 import '../../domain/models/update_info.dart';
+import '../../domain/models/update_status.dart';
 import '../../providers.dart';
 import '../../router.dart';
 import '../../shared/widgets/app_logo.dart';
@@ -64,6 +65,9 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
     final aiSettings = ref.watch(aiSettingsProvider);
     final appVersion =
         ref.watch(appVersionProvider).value ?? UpdateConfig.fallbackVersion;
+    final updateStatus = ref.watch(updateStatusProvider);
+    final availableUpdate =
+        updateStatus is UpdateAvailable ? updateStatus : null;
     final chatState = ref.watch(studyChatControllerProvider);
 
     if (!_configLoaded && config.hasValue) {
@@ -155,7 +159,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
 
             _buildSectionHeader('关于', Icons.info_outline_rounded),
             const SizedBox(height: 12),
-            _buildAuthorCard(appVersion),
+            _buildAuthorCard(appVersion, availableUpdate),
             const SizedBox(height: 24),
           ],
         ),
@@ -799,7 +803,8 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
   // 3. 关于、版本更新与作者个人主页（完整保留）
   // ------------------------------------------------------------------
 
-  Widget _buildAuthorCard(String version) {
+  Widget _buildAuthorCard(String version, UpdateAvailable? availableUpdate) {
+    final hasUpdate = availableUpdate != null;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
       decoration: _cardDecoration(),
@@ -843,11 +848,28 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
               SizedBox(
                 height: 28,
                 child: OutlinedButton(
-                  onPressed: _checkingUpdate ? null : _handleCheckUpdate,
+                  onPressed: _checkingUpdate
+                      ? null
+                      : () {
+                          if (hasUpdate) {
+                            _showUpdateDialog(
+                              availableUpdate.currentVersion,
+                              availableUpdate.release,
+                            );
+                          } else {
+                            _handleCheckUpdate();
+                          }
+                        },
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 10),
-                    side: const BorderSide(color: Color(0xFFE2E8F0)),
-                    backgroundColor: const Color(0xFFF8FAFC),
+                    side: BorderSide(
+                      color: hasUpdate
+                          ? AppColors.primary.withValues(alpha: 0.45)
+                          : const Color(0xFFE2E8F0),
+                    ),
+                    backgroundColor: hasUpdate
+                        ? AppColors.primary.withValues(alpha: 0.08)
+                        : const Color(0xFFF8FAFC),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(6),
                     ),
@@ -859,13 +881,32 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                           height: 12,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Text(
-                          '检查更新',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (hasUpdate) ...[
+                              Container(
+                                key: const Key('settings_update_badge_dot'),
+                                width: 6,
+                                height: 6,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFEF4444),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                            ],
+                            Text(
+                              hasUpdate
+                                  ? '发现 ${availableUpdate.release.tagName}'
+                                  : '检查更新',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                 ),
               ),
@@ -990,23 +1031,29 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
     setState(() => _checkingUpdate = true);
 
     try {
-      final current = await ref.read(appVersionProvider.future);
-      final latest = await ref.read(updateClientProvider).checkLatest();
-
+      await ref.read(updateStatusProvider.notifier).check();
       if (!mounted) return;
       setState(() => _checkingUpdate = false);
 
-      if (latest == null ||
-          latest.isPrerelease ||
-          !isNewerVersion(latest.tagName, current)) {
-        _showCenteredDialog(
-          title: '检查更新',
-          message: '当前已是最新版本 (v$current)',
-        );
-        return;
+      final status = ref.read(updateStatusProvider);
+      switch (status) {
+        case UpdateAvailable(:final currentVersion, :final release):
+          _showUpdateDialog(currentVersion, release);
+        case UpdateUpToDate(:final currentVersion):
+          _showCenteredDialog(
+            title: '检查更新',
+            message: '当前已是最新版本 (v$currentVersion)',
+          );
+        case UpdateCheckFailed(:final message):
+          _showCenteredDialog(
+            title: '检查更新失败',
+            message: message,
+            isError: true,
+          );
+        case UpdateIdle():
+        case UpdateChecking():
+          break;
       }
-
-      _showUpdateDialog(current, latest);
     } catch (e) {
       if (!mounted) return;
       setState(() => _checkingUpdate = false);

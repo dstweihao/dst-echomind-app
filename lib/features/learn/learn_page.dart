@@ -13,6 +13,7 @@ import '../../data/ai/prompts/study_mode_prompt.dart';
 import '../../data/ai/provider_presets.dart';
 import '../../domain/ai_enums_bridge.dart';
 import '../../domain/models/knowledge_models.dart';
+import '../../domain/models/update_status.dart';
 import '../../providers.dart';
 import '../../router.dart';
 import '../../shared/widgets/app_logo.dart';
@@ -47,6 +48,9 @@ class _LearnPageState extends ConsumerState<LearnPage> {
     final controller = ref.read(studyChatControllerProvider.notifier);
     final aiReady = ref.watch(aiAvailableProvider);
     final aiSettings = ref.watch(aiSettingsProvider);
+    final updateStatus = ref.watch(updateStatusProvider);
+    final availableUpdate =
+        updateStatus is UpdateAvailable ? updateStatus : null;
     final voiceName =
         voiceOptionById(aiSettings.ttsVoiceId).name.split('·').first.trim();
 
@@ -161,12 +165,37 @@ class _LearnPageState extends ConsumerState<LearnPage> {
                 : null,
           ),
           IconButton(
-            icon: const Icon(
-              Icons.tune_rounded,
-              size: 21,
-              color: Color(0xFF1E293B),
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(
+                  Icons.tune_rounded,
+                  size: 21,
+                  color: Color(0xFF1E293B),
+                ),
+                if (availableUpdate != null)
+                  Positioned(
+                    right: -2,
+                    top: -2,
+                    child: Container(
+                      key: const Key('settings_update_dot'),
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.background,
+                          width: 1.4,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
-            tooltip: '设置',
+            tooltip: availableUpdate != null
+                ? '设置（发现新版本 ${availableUpdate.release.tagName}）'
+                : '设置',
             onPressed: () => context.push(AppRouter.aiSettings),
           ),
           const SizedBox(width: AppSpacing.xs),

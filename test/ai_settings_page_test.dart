@@ -1,11 +1,14 @@
 import 'package:echomind_app/data/credentials/credentials_store.dart';
 import 'package:echomind_app/data/storage/memory_file_store.dart';
+import 'package:echomind_app/domain/models/update_info.dart';
 import 'package:echomind_app/features/ai_settings/ai_settings_page.dart';
 import 'package:echomind_app/providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'update_fakes.dart';
 
 class _FakeSecretStore extends SecretStore {
   String? saved;
@@ -84,5 +87,52 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(secrets.saved, equals('sk-new-valid-key'));
+  });
+
+  testWidgets('静默检查发现新版本时，关于卡片展示红点与版本号并可点击弹窗更新', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final secrets = _FakeSecretStore();
+    final container = ProviderContainer(
+      overrides: [
+        initialStorageRootProvider.overrideWithValue(''),
+        fileStoreProvider.overrideWithValue(MemoryFileStore()),
+        secretStoreProvider.overrideWithValue(secrets),
+        aiApiKeyProvider.overrideWith((ref) async => ''),
+        appVersionProvider.overrideWith((ref) async => '1.0.1'),
+        updateClientProvider.overrideWithValue(
+          FakeUpdateClient(
+            release: const ReleaseInfo(
+              tagName: 'v1.0.2',
+              notes: '修复若干边界问题',
+              htmlUrl: 'https://github.com/dstweihao/dst-echomind-app/releases/tag/v1.0.2',
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(updateStatusProvider.notifier).check();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AiSettingsPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('settings_update_badge_dot')), findsOneWidget);
+    expect(find.text('发现 v1.0.2'), findsOneWidget);
+
+    await tester.tap(find.text('发现 v1.0.2'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('发现新版本 v1.0.2'), findsOneWidget);
+    expect(find.text('修复若干边界问题'), findsOneWidget);
   });
 }
