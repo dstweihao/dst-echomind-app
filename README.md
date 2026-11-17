@@ -1,53 +1,91 @@
 # 回响 (EchoMind)
 
 <p align="center">
-  <img src="assets/icon/icon.png" width="96" height="96" alt="回响 Logo" /><br />
-  <strong>参照 ChatGPT 学习模式 + Claude 分层知识沉淀打造的苏格拉底语音 AI 私教 —— 单一长期会话，用大白话和启发式反问，让每次思考都有回响。</strong>
+  <img src="assets/icon/icon.png" width="96" height="96" alt="回响 Logo" />
 </p>
 
----
+<p align="center">
+  一个基于 DeepSeek 对话与语音能力的跨平台学习应用。<br />
+  用苏格拉底反问带你一步步想明白问题，并将学通的内容持续沉淀为本地 Markdown 笔记。
+</p>
 
-## 核心特性
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20macOS%20%7C%20Windows-2563EB" alt="Platforms" />
+  <img src="https://img.shields.io/badge/Flutter-3.47%2B-02569B" alt="Flutter" />
+  <img src="https://img.shields.io/badge/Model-DeepSeek-4D6BFE" alt="DeepSeek" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-34C759" alt="MIT License" /></a>
+</p>
 
-1. **类 ChatGPT Study Mode 通俗苏格拉底教学引擎**
-   - **轻量摸底**：先感知你的困惑与基础，绝不发冗长问卷。
-   - **生活类比讲大白话**：先打通直觉，再引入专业概念，优先引用你已沉淀的知识做类比桥梁。
-   - **单点启发式反诘**：每次只抛 1 个小问题引导你自己推导；卡壳时立即换角度给台阶或通俗拆解。
-   - **费曼复述巩固**：攻克后邀你用一句话复述并给出记忆锚点。
+## 为什么做这个
 
-2. **单一长期会话 + Claude 式分层知识沉淀（`KNOWLEDGE.md` + `docs/`）**
-   - **告别碎片化多会话**：唯一一条持续陪伴的学习对话流，上下文达到上限（默认 20 条消息 / 12,000 字）自动沉淀压缩，也支持顶栏随时一键手动沉淀。
-   - **`KNOWLEDGE.md`（对标 `CLAUDE.md`）**：纯文本总知识沉淀清单，每次对话自动作为长期记忆地图注入 AI，让私教越用越懂你的知识版图。
-   - **`docs/<category>.md`**：按学科/专题/行业自动归类并增量追加结构化 Markdown 沉淀卡片（一句话核心、生活类比、常见误区、费曼复述），左侧抽屉随时翻阅并一键发起苏格拉底复习。
+直接向大模型提问，往往只拿到一段现成答案，看过就忘。回响想解决两件事：
 
-3. **DeepSeek 2026 全栈语音与最新模型能力**
-   - **最新对话模型**：默认采用 `deepseek-flash`（支持按需开关深度思考，首字极速响应），同时支持切换 `deepseek-v4-pro`。
-   - **DeepSeek ASR 语音转文字**：一键语音提问，自动编码 16kHz 标准 WAV 上传 `/v1/tools/asr`，支持多语种自动识别。
-   - **类豆包边生成边自动播报（DeepSeek TTS）**：基于原生 WebSocket `wss://api.deepseek.com/v1/tools/tts` 与四端原生 `audioplayers` 分段 WAV 流式播放，回复边生成边自动朗读，支持 `stella`（海星女声）/ `tide`（暗潮男声）试听切换、顶栏一键静音、随时打断与点击任意气泡重播。
+- **只给启发，不直接喂答案**：遇到不懂的概念，先用大白话和类比建立直觉，每次只抛一个小问题引导你自己推导，直到能用自己的话讲清楚。
+- **单一长期对话，不堆垃圾窗口**：没有繁琐的多会话列表。所有学习都在同一条对话流里持续推进，聊透的知识点会自动提炼成高密度的本地 Markdown 文档，旧对话达到上下文上限后自动压缩，学习脉络不断档。
 
-4. **四端原生极简体验**
-   - 支持 **Android / iOS / macOS / Windows** 四端原生运行。
-   - 设置页极简聚焦：仅保留 DeepSeek API Key / 余额 / 模型、语音交互设置，以及版本检查更新与作者信息。
+## 主要功能
 
----
+### 苏格拉底式引导学习
+- 先快速判断你的理解盲区，不发冗长问卷。
+- 优先用生活类比和已有笔记打通直觉，再落到专业术语。
+- 每次只围绕一个点追问；卡壳时换角度给台阶，最后用一句话复述收尾巩固。
+
+### 语音提问与流式朗读
+- **双模式输入**：输入框支持打字与语音随时切换；语音模式下按住说话、松手发送、上滑取消，录音打包为 16kHz WAV，经 DeepSeek ASR（`/v1/tools/asr`）转文字。
+- **边生成边播报**：模型流式输出的同时，通过 DeepSeek WebSocket TTS（`wss://api.deepseek.com/v1/tools/tts`）接收 24kHz 原始 PCM 音频流，由 `flutter_soloud` 连续播放，无分段停顿；支持随时打断、静音、点击任意回复气泡重播，内置 `stella`（海星）与 `tide`（暗潮）两种音色试听切换。
+
+### 自动知识沉淀与上下文压缩
+- **自动为主、手动为辅**：每新增 3 轮问答在后台静默提炼一次，达到上限（默认 20 条消息或 12,000 字）自动压缩旧对话并保留近期原话；顶栏也可随时手动触发。纯闲聊不会写入知识库。
+- **高信息密度笔记**：提炼遵循精炼原则，每条知识点仅记录 `核心 / 类比 / 误区 / 复述`，增量追加、默认不可删除。
+- **两层纯文本结构**：
+  - `KNOWLEDGE.md`：总知识索引，每次对话自动注入上下文，让模型知道你已经掌握了什么。
+  - `docs/<category>.md`：按学科或专题归类的详情文档，可在左侧抽屉随时翻阅，也可以直接带入当前对话继续复习。
+
+### 模型与设置
+- 默认使用 `deepseek-flash`（默认关闭深度思考以保证语音首字响应速度，可按需开启），支持切换 `deepseek-v4-pro`。
+- 设置页只保留 DeepSeek API Key、账户实时余额查询、模型与语音配置、版本检查更新。
+
+## 本地数据结构
+
+所有对话与笔记均为本地纯文本文件，可直接配合同步盘或 Git 备份：
+
+```text
+<数据目录>/
+├── conversation.json     # 当前单一会话与滚动摘要
+├── KNOWLEDGE.md          # 总知识索引（自动注入对话上下文）
+└── docs/
+    ├── economics.md      # 按专题增量追加的知识笔记
+    ├── programming.md
+    └── ...
+```
+
+## 技术栈
+
+- **框架**：Flutter（Android / iOS / macOS / Windows）、Riverpod、GoRouter
+- **大模型与语音接口**：DeepSeek Chat（`deepseek-flash` / `deepseek-v4-pro`）、DeepSeek ASR、DeepSeek WebSocket / HTTP TTS
+- **音频链路**：`record`（16kHz PCM 录音与 WAV 封包）+ `flutter_soloud`（24kHz PCM 连续流式播放）
 
 ## 本地运行与测试
 
 ```bash
-# 拉取依赖
-flutter pub get
+git clone https://github.com/dstweihao/dst-echomind-app.git
+cd dst-echomind-app
 
-# 静态检查与全量测试
+flutter pub get
 dart analyze
 flutter test
 
-# 本地启动（示例：macOS）
+# 按需指定目标平台运行（macos / windows / android / ios）
 flutter run -d macos
 ```
 
----
+启动后点击右上角设置图标，填入自己的 DeepSeek API Key 即可使用。
 
-## 作者与项目
+## 许可证
+
+本项目基于 [MIT License](LICENSE) 开源。
+
+## 作者
 
 - GitHub: [github.com/dstweihao](https://github.com/dstweihao)
 - 个人网站: [https://dstweihao.cn](https://dstweihao.cn)

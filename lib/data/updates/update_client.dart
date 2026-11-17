@@ -32,7 +32,10 @@ class UpdateClient {
     try {
       response = await _http.get(
         uri,
-        headers: const {'Accept': 'application/vnd.github+json'},
+        headers: const {
+          'Accept': 'application/vnd.github+json',
+          'User-Agent': 'EchoMind-App',
+        },
       ).timeout(UpdateConfig.checkTimeout);
     } on TimeoutException {
       throw const UpdateException('连接 GitHub 超时，请检查网络');

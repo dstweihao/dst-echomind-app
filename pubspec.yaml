@@ -1,5 +1,5 @@
 name: echomind_app
-description: 回响 (EchoMind) —— 基于苏格拉底反诘法与 DeepSeek 语音的 AI 学习私教
+description: 回响 (EchoMind) - 基于 DeepSeek 对话与语音能力的苏格拉底式学习应用
 publish_to: 'none'
 version: 1.0.1+2
 
@@ -17,28 +17,20 @@ dependencies:
   # 路由
   go_router: ^18.0.2
 
-  # 网络：WebDAV 客户端自研（见 lib/data/webdav/raw_webdav_adapter.dart）
-  # 不引 webdav_client —— 该包停更于 2024-05，已自行实现以避免依赖风险
+  # 网络
   http: ^1.6.0
-  xml: ^7.1.0
 
-  # 数据格式：Markdown + YAML 头部
+  # 数据格式：Markdown + YAML 配置
   yaml: ^3.1.4
 
-  # 本地存储：凭证加密 + UI 偏好 + 静态缓存目录
+  # 本地存储：凭证加密 + UI 偏好 + 本地路径
   flutter_secure_storage: ^11.2.0
   shared_preferences: ^2.5.5
   path_provider: ^2.1.6
   path: ^1.9.0
 
-  # 图表
-  fl_chart: ^1.2.0
-
   # 工具
-  intl: ^0.20.3
   uuid: ^4.6.0
-  collection: ^1.19.1
-  file_selector: ^1.1.0
   package_info_plus: ^10.2.1
   url_launcher: ^6.3.2
   flutter_markdown: ^0.7.7+1

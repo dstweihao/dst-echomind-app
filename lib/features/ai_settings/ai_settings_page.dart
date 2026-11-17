@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/ai/provider_presets.dart';
+import '../../data/updates/update_client.dart';
 import '../../data/updates/update_config.dart';
 import '../../domain/enums/app_enums.dart';
 import '../../domain/models/ai_settings.dart';
@@ -984,7 +985,9 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
       if (!mounted) return;
       setState(() => _checkingUpdate = false);
 
-      if (latest == null || !isNewerVersion(latest.tagName, current)) {
+      if (latest == null ||
+          latest.isPrerelease ||
+          !isNewerVersion(latest.tagName, current)) {
         _showCenteredDialog(
           title: '检查更新',
           message: '当前已是最新版本 (v$current)',
@@ -998,7 +1001,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
       setState(() => _checkingUpdate = false);
       _showCenteredDialog(
         title: '检查更新失败',
-        message: '网络或服务异常：$e',
+        message: e is UpdateException ? e.message : '网络或服务异常：$e',
         isError: true,
       );
     }
@@ -1114,24 +1117,43 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                           final result = await installer(
                             release,
                             onProgress: (p) {
-                              setDialogState(() => downloadProgress = p);
+                              if (dialogCtx.mounted) {
+                                setDialogState(() => downloadProgress = p);
+                              }
                             },
                           );
                           if (!result.isSuccess) {
-                            setDialogState(() {
-                              downloading = false;
-                              errorMsg = result.message;
-                            });
+                            if (dialogCtx.mounted) {
+                              setDialogState(() {
+                                downloading = false;
+                                errorMsg = result.message;
+                              });
+                            }
                           } else {
                             if (dialogCtx.mounted) {
                               Navigator.of(dialogCtx).pop();
                             }
+                            if (mounted) {
+                              AppToast.showSuccess(
+                                this.context,
+                                title:
+                                    result.outcome == InstallOutcome.launched
+                                        ? '已启动安装程序'
+                                        : '已打开下载页面',
+                                detail:
+                                    result.outcome == InstallOutcome.launched
+                                        ? '按提示安装完成后请重启应用'
+                                        : null,
+                              );
+                            }
                           }
                         } catch (e) {
-                          setDialogState(() {
-                            downloading = false;
-                            errorMsg = '下载安装失败：$e';
-                          });
+                          if (dialogCtx.mounted) {
+                            setDialogState(() {
+                              downloading = false;
+                              errorMsg = '下载安装失败：$e';
+                            });
+                          }
                         }
                       },
                 style: ElevatedButton.styleFrom(

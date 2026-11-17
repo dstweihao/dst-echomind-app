@@ -12,19 +12,15 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          // 存储根目录正常由 main() 注入；测试里直接给内存实现
           initialStorageRootProvider.overrideWithValue(''),
           fileStoreProvider.overrideWithValue(MemoryFileStore()),
-          // 避免在 fake-async 环境里触发 flutter_secure_storage 插件通道
           aiApiKeyProvider.overrideWith((ref) async => null),
-          // 启动时的静默版本检查不该真的联网
           updateClientProvider.overrideWithValue(FakeUpdateClient()),
         ],
-        child: const AbsoluteMomentApp(),
+        child: const EchoMindApp(),
       ),
     );
 
-    // 路由落地是异步的，用有界轮询推进帧
     var booted = false;
     for (var i = 0; i < 30; i++) {
       await tester.pump(const Duration(milliseconds: 50));
@@ -47,7 +43,7 @@ void main() {
           aiApiKeyProvider.overrideWith((ref) async => null),
           updateClientProvider.overrideWithValue(FakeUpdateClient()),
         ],
-        child: const AbsoluteMomentApp(),
+        child: const EchoMindApp(),
       ),
     );
 
