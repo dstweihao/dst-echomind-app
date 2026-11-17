@@ -48,6 +48,7 @@ class RecordVoiceRecorderService implements VoiceRecorderService {
   Timer? _tickTimer;
   DateTime? _startedAt;
   bool _recording = false;
+  int _sessionToken = 0;
 
   @override
   Stream<double> get amplitudeStream => _amplitudeCtrl.stream;
@@ -70,8 +71,10 @@ class RecordVoiceRecorderService implements VoiceRecorderService {
   @override
   Future<void> start({void Function()? onMaxDurationReached}) async {
     if (_recording) return;
+    final token = ++_sessionToken;
 
     final granted = await hasPermission();
+    if (token != _sessionToken) return;
     if (!granted) {
       throw StateError('未获得麦克风权限，请在系统设置中允许「回响」访问麦克风');
     }
@@ -88,6 +91,7 @@ class RecordVoiceRecorderService implements VoiceRecorderService {
           ],
         );
       } catch (_) {}
+      if (token != _sessionToken) return;
     }
 
     _pcmBuffer = BytesBuilder(copy: false);
@@ -102,10 +106,29 @@ class RecordVoiceRecorderService implements VoiceRecorderService {
       numChannels: 1,
     );
 
-    final stream = await _recorder.startStream(config);
+    final Stream<Uint8List> stream;
+    try {
+      stream = await _recorder.startStream(config);
+    } catch (_) {
+      if (token == _sessionToken) {
+        _recording = false;
+        _startedAt = null;
+        _pcmBuffer = null;
+      }
+      rethrow;
+    }
+
+    // 若在 startStream 期间用户已快速松手或取消，立即停录避免麦克风常开泄漏
+    if (token != _sessionToken || !_recording) {
+      try {
+        await _recorder.cancel();
+      } catch (_) {}
+      return;
+    }
+
     _pcmSub = stream.listen(
       (chunk) {
-        if (!_recording || chunk.isEmpty) return;
+        if (token != _sessionToken || !_recording || chunk.isEmpty) return;
         _pcmBuffer?.add(chunk);
         _amplitudeCtrl.add(WavEncoder.computeRmsLevel(chunk));
       },
@@ -113,7 +136,7 @@ class RecordVoiceRecorderService implements VoiceRecorderService {
     );
 
     _tickTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!_recording || _startedAt == null) return;
+      if (token != _sessionToken || !_recording || _startedAt == null) return;
       final elapsed = DateTime.now().difference(_startedAt!);
       _durationCtrl.add(elapsed);
       if (elapsed >= maxDuration) {
@@ -124,7 +147,13 @@ class RecordVoiceRecorderService implements VoiceRecorderService {
 
   @override
   Future<RecordedAudio?> stop() async {
-    if (!_recording) return null;
+    _sessionToken++;
+    if (!_recording) {
+      try {
+        await _recorder.cancel();
+      } catch (_) {}
+      return null;
+    }
     _recording = false;
     _tickTimer?.cancel();
     _tickTimer = null;
@@ -156,6 +185,7 @@ class RecordVoiceRecorderService implements VoiceRecorderService {
 
   @override
   Future<void> cancel() async {
+    _sessionToken++;
     _recording = false;
     _tickTimer?.cancel();
     _tickTimer = null;

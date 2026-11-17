@@ -9,7 +9,7 @@ class MainFlutterWindow: NSWindow {
     self.setFrame(windowFrame, display: true)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
-    self.title = "绝对时刻"
+    self.title = "回响"
 
     super.awakeFromNib()
   }

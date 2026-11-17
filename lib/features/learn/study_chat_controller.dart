@@ -160,6 +160,7 @@ class StudyChatController extends Notifier<StudyChatState> {
 
   DeepSeekTtsStreamSession? _activeTtsSession;
   int _playbackToken = 0;
+  int _recordingToken = 0;
 
   @override
   StudyChatState build() {
@@ -274,7 +275,7 @@ class StudyChatController extends Notifier<StudyChatState> {
     final splitIndex =
         (active.length - keepCount).clamp(1, active.length);
     final toCompact = active.sublist(0, splitIndex);
-    final keptTail = active.sublist(splitIndex);
+    final compactedIds = toCompact.map((m) => m.id).toSet();
 
     state = state.copyWith(
       isCompacting: true,
@@ -315,13 +316,18 @@ class StudyChatController extends Notifier<StudyChatState> {
         isCompactionNotice: true,
       );
 
+      // 仅移除本次已压缩的旧消息，完整保留压缩期间用户新发的任何对话
+      final remaining = state.messages
+          .where((m) => !m.isCompactionNotice && !compactedIds.contains(m.id))
+          .toList();
+
       state = state.copyWith(
-        messages: [noticeMsg, ...keptTail],
+        messages: [noticeMsg, ...remaining],
         rollingSummary: result.rollingSummary,
         knowledgeIndex: updatedIndex,
         knowledgeDocs: updatedDocs,
         compactionCount: state.compactionCount + 1,
-        lastDistilledCount: keptTail.length,
+        lastDistilledCount: remaining.length,
         isCompacting: false,
         clearStatusBanner: true,
       );
@@ -447,6 +453,8 @@ class StudyChatController extends Notifier<StudyChatState> {
     var wsReady = false;
     var wsFailed = false;
     var llmCompleted = false;
+    String completedReply = '';
+    String? completedMessageId;
     final token = ++_playbackToken;
 
     if (shouldAutoSpeak) {
@@ -461,6 +469,8 @@ class StudyChatController extends Notifier<StudyChatState> {
           token: token,
           earlyQueue: earlyQueue,
           isLlmDone: () => llmCompleted,
+          getCompletedReply: () => completedReply,
+          getCompletedMessageId: () => completedMessageId,
           onReady: () => wsReady = true,
           onFailed: () => wsFailed = true,
         ),
@@ -529,6 +539,7 @@ class StudyChatController extends Notifier<StudyChatState> {
           if (!ref.mounted) return;
           llmCompleted = true;
           final fullReply = state.streamingText.trim();
+          completedReply = fullReply;
           String? savedId;
 
           state = state.copyWith(
@@ -544,6 +555,7 @@ class StudyChatController extends Notifier<StudyChatState> {
               createdAt: DateTime.now(),
             );
             savedId = assistantMsg.id;
+            completedMessageId = savedId;
             await _appendMessages([assistantMsg]);
           }
 
@@ -613,6 +625,8 @@ class StudyChatController extends Notifier<StudyChatState> {
     required int token,
     required List<String> earlyQueue,
     required bool Function() isLlmDone,
+    required String Function() getCompletedReply,
+    required String? Function() getCompletedMessageId,
     required VoidCallback onReady,
     required VoidCallback onFailed,
   }) async {
@@ -670,7 +684,24 @@ class StudyChatController extends Notifier<StudyChatState> {
     } catch (e) {
       debugPrint('TTS WS connect failed, will fallback to HTTP: $e');
       onFailed();
-      if (ref.mounted && token == _playbackToken && !isLlmDone()) {
+      if (!ref.mounted || token != _playbackToken) return;
+      if (isLlmDone()) {
+        final reply = getCompletedReply();
+        if (reply.isNotEmpty) {
+          unawaited(
+            _playViaHttp(
+              text: reply,
+              messageId: getCompletedMessageId() ?? streamingMessageId,
+              voiceId: voiceId,
+            ),
+          );
+        } else {
+          state = state.copyWith(
+            ttsPhase: TtsPlaybackPhase.idle,
+            clearPlayingMessageId: true,
+          );
+        }
+      } else {
         state = state.copyWith(
           ttsPhase: TtsPlaybackPhase.idle,
           clearPlayingMessageId: true,
@@ -708,8 +739,10 @@ class StudyChatController extends Notifier<StudyChatState> {
 
   Future<void> startRecording() async {
     if (state.isGenerating || state.isRecording || state.isTranscribing) return;
+    final recToken = ++_recordingToken;
 
     await stopPlayback();
+    if (!ref.mounted || recToken != _recordingToken) return;
 
     final recorder = ref.read(voiceRecorderServiceProvider);
     try {
@@ -717,11 +750,15 @@ class StudyChatController extends Notifier<StudyChatState> {
       await _durSub?.cancel();
 
       _ampSub = recorder.amplitudeStream.listen((amp) {
-        if (!ref.mounted || !state.isRecording) return;
+        if (!ref.mounted || recToken != _recordingToken || !state.isRecording) {
+          return;
+        }
         state = state.copyWith(recordingAmplitude: amp);
       });
       _durSub = recorder.durationStream.listen((dur) {
-        if (!ref.mounted || !state.isRecording) return;
+        if (!ref.mounted || recToken != _recordingToken || !state.isRecording) {
+          return;
+        }
         state = state.copyWith(recordingDuration: dur);
       });
 
@@ -737,9 +774,15 @@ class StudyChatController extends Notifier<StudyChatState> {
           unawaited(stopRecordingAndTranscribe());
         },
       );
+
+      if (!ref.mounted || recToken != _recordingToken) {
+        await recorder.cancel();
+        return;
+      }
     } catch (e) {
       await _ampSub?.cancel();
       await _durSub?.cancel();
+      if (!ref.mounted || recToken != _recordingToken) return;
       state = state.copyWith(
         voicePhase: VoiceInputPhase.idle,
         recordingAmplitude: 0.0,
@@ -750,10 +793,12 @@ class StudyChatController extends Notifier<StudyChatState> {
   }
 
   Future<void> cancelRecording() async {
+    _recordingToken++;
     if (!state.isRecording) return;
     await _ampSub?.cancel();
     await _durSub?.cancel();
     await ref.read(voiceRecorderServiceProvider).cancel();
+    if (!ref.mounted) return;
     state = state.copyWith(
       voicePhase: VoiceInputPhase.idle,
       recordingAmplitude: 0.0,
@@ -764,6 +809,7 @@ class StudyChatController extends Notifier<StudyChatState> {
   Future<void> stopRecordingAndTranscribe({
     void Function(String text)? onTranscribedForInput,
   }) async {
+    _recordingToken++;
     if (!state.isRecording) return;
 
     await _ampSub?.cancel();

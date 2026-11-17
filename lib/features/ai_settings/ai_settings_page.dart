@@ -44,6 +44,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
 
   bool _loadingBalance = false;
   bool? _balanceAvailable;
+  String _balanceCurrencySymbol = '¥';
   String? _totalBalance;
   String? _grantedBalance;
   String? _toppedUpBalance;
@@ -82,7 +83,9 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
       _apiKey.text = k;
       _keyLoaded = true;
       if (k.isNotEmpty) {
-        _fetchDeepSeekBalance(k);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _fetchDeepSeekBalance(k);
+        });
       }
     }
 
@@ -507,21 +510,29 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         final isAvailable = data['is_available'] as bool? ?? false;
         final list = data['balance_infos'] as List<dynamic>?;
+        String currencySymbol = '¥';
         String? total;
         String? granted;
         String? toppedUp;
         if (list != null && list.isNotEmpty) {
-          final first = list.first as Map<String, dynamic>;
-          total = first['total_balance']?.toString();
-          granted = first['granted_balance']?.toString();
-          toppedUp = first['topped_up_balance']?.toString();
+          final entries = list.whereType<Map<String, dynamic>>().toList();
+          final picked = entries.firstWhere(
+            (e) => (e['currency']?.toString().toUpperCase() ?? '') == 'CNY',
+            orElse: () => entries.first,
+          );
+          final currency = picked['currency']?.toString().toUpperCase() ?? 'CNY';
+          currencySymbol = currency == 'USD' ? r'$' : '¥';
+          total = picked['total_balance']?.toString();
+          granted = picked['granted_balance']?.toString();
+          toppedUp = picked['topped_up_balance']?.toString();
         }
 
         if (mounted) {
           setState(() {
             _loadingBalance = false;
             _balanceAvailable = isAvailable;
-            _totalBalance = total;
+            _balanceCurrencySymbol = currencySymbol;
+            _totalBalance = total ?? '0.00';
             _grantedBalance = granted;
             _toppedUpBalance = toppedUp;
           });
@@ -679,7 +690,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
           Expanded(
             child: Text.rich(
               TextSpan(
-                text: '¥ $_totalBalance ',
+                text: '$_balanceCurrencySymbol ${_totalBalance ?? "0.00"} ',
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
@@ -689,7 +700,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                   if (_toppedUpBalance != null || _grantedBalance != null)
                     TextSpan(
                       text:
-                          '(充值 ¥${_toppedUpBalance ?? "0"} · 赠送 ¥${_grantedBalance ?? "0"})',
+                          '(充值 $_balanceCurrencySymbol${_toppedUpBalance ?? "0"} · 赠送 $_balanceCurrencySymbol${_grantedBalance ?? "0"})',
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.normal,

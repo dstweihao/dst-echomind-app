@@ -96,7 +96,7 @@ class LocalFileStore implements FileStore {
       }
       // 真写一次探针，才能确认「可写」而不只是「存在」——
       // 只读盘 / 权限不足只有真写才会暴露。
-      final probe = File(p.join(rootPath, '.absolute_moment_probe'));
+      final probe = File(p.join(rootPath, '.echomind_probe'));
       await probe.writeAsString('ok', flush: true);
       await probe.delete();
     } catch (e) {
