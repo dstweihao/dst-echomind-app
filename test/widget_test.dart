@@ -1,4 +1,4 @@
-import 'package:absolute_moment_app/core/theme/app_theme.dart';
+import 'package:echomind_app/core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

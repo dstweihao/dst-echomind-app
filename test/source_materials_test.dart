@@ -1,11 +1,11 @@
-import 'package:absolute_moment_app/data/ai/prompts/stage_prompts.dart';
-import 'package:absolute_moment_app/data/repositories/resource_scanner.dart';
-import 'package:absolute_moment_app/data/serialization/checkin_markdown.dart';
-import 'package:absolute_moment_app/data/storage/file_store.dart';
-import 'package:absolute_moment_app/data/storage/memory_file_store.dart';
-import 'package:absolute_moment_app/domain/enums/app_enums.dart';
-import 'package:absolute_moment_app/domain/models/checkin.dart';
-import 'package:absolute_moment_app/domain/models/source_material.dart';
+import 'package:echomind_app/data/ai/prompts/stage_prompts.dart';
+import 'package:echomind_app/data/repositories/resource_scanner.dart';
+import 'package:echomind_app/data/serialization/checkin_markdown.dart';
+import 'package:echomind_app/data/storage/file_store.dart';
+import 'package:echomind_app/data/storage/memory_file_store.dart';
+import 'package:echomind_app/domain/enums/app_enums.dart';
+import 'package:echomind_app/domain/models/checkin.dart';
+import 'package:echomind_app/domain/models/source_material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 阶段 0 的输入源 —— 个性化资源文件夹里那些**非节点文档**

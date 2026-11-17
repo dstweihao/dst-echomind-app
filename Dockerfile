@@ -14,7 +14,7 @@ COPY build/web /usr/share/nginx/html
 
 EXPOSE 80
 
-LABEL org.opencontainers.image.source="https://github.com/dstweihao/dst-absolute-moment-app"
-LABEL org.opencontainers.image.description="绝对时刻 (Absolute Moment) Web 容器镜像"
+LABEL org.opencontainers.image.source="https://github.com/dstweihao/dst-echomind-app"
+LABEL org.opencontainers.image.description="回响 (EchoMind) Web 容器镜像"
 
 CMD ["nginx", "-g", "daemon off;"]

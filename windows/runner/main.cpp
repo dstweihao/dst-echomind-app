@@ -27,10 +27,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  // Window title "绝对时刻" (Absolute Moment). Use \u escapes instead of a
+  // Window title "回响" (EchoMind). Use \u escapes instead of a
   // literal string: MSVC reads non-BOM UTF-8 source as the system code page
   // (GBK on Chinese Windows), which would garble the title.
-  if (!window.Create(L"\u7edd\u5bf9\u65f6\u523b", origin, size)) {
+  if (!window.Create(L"\u56de\u54cd", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

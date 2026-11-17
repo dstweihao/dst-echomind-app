@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:absolute_moment_app/data/updates/update_installer_io.dart';
-import 'package:absolute_moment_app/domain/models/update_info.dart';
+import 'package:echomind_app/data/updates/update_installer_io.dart';
+import 'package:echomind_app/domain/models/update_info.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:mocktail/mocktail.dart';

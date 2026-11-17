@@ -3,7 +3,7 @@ class UpdateConfig {
   UpdateConfig._();
 
   static const String gitHubOwner = 'dstweihao';
-  static const String gitHubRepo = 'dst-absolute-moment-app';
+  static const String gitHubRepo = 'dst-echomind-app';
 
   static const String apiBase = 'https://api.github.com';
 

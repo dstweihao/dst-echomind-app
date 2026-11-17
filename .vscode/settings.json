@@ -5,5 +5,5 @@
     "chat.editing.autoAcceptDelay": 0,
     "antigravity.agent.toolExecutionPolicy": "always-proceed",
     "antigravity.agent.artifactReviewMode": "always-proceed",
-    "java.configuration.updateBuildConfiguration": "interactive"
+    "java.configuration.updateBuildConfiguration": "automatic"
 }

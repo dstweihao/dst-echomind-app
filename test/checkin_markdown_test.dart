@@ -1,6 +1,6 @@
-import 'package:absolute_moment_app/data/serialization/checkin_markdown.dart';
-import 'package:absolute_moment_app/domain/models/action_card.dart';
-import 'package:absolute_moment_app/domain/models/checkin.dart';
+import 'package:echomind_app/data/serialization/checkin_markdown.dart';
+import 'package:echomind_app/domain/models/action_card.dart';
+import 'package:echomind_app/domain/models/checkin.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 一个字段齐全的打卡记录，用于验证往返不丢任何字段。

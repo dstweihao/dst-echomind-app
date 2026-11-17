@@ -1,55 +1,72 @@
 import '../enums/app_enums.dart';
 
-/// AI 接口配置
+/// AI 与语音接口配置
 ///
-/// 存储在 `/AbsoluteMoment/config.yaml` 的 `ai:` 段，跨设备同步。
-///
-/// ⚠️ 安全边界：**API Key 不在此模型中**。
-/// config.yaml 会明文同步到坚果云云端，密钥必须单独存
-/// `flutter_secure_storage`（设备本地加密），见 `CredentialsStore`。
+/// 存储在本地配置文件的 `ai:` 段，不含 API Key。
+/// ⚠️ 安全边界：**API Key 不在此模型中**，密钥由 `SecretStore` 单独加密保存。
 class AiSettings {
-  /// 总开关。关闭后全部阶段走纯自评模式
+  /// 总开关。关闭后不发起远端 AI 请求
   final bool enabled;
 
   /// 协议类型，决定端点拼接方式
   final AiProtocol protocol;
 
   /// 服务地址，如 `https://api.deepseek.com`
-  ///
-  /// 末尾斜杠会被自动规范化，用户填不填都行。
   final String baseUrl;
 
-  /// 模型名，如 `deepseek-reasoner`
+  /// 模型名，默认使用 DeepSeek 最新官方快速模型 `deepseek-flash`
   final String model;
 
   final double temperature;
   final int maxTokens;
 
   /// 推理档位 low | high | max，为空则不传该参数
-  ///
-  /// 实测：DeepSeek 系列在 high/max 下思考极长，
-  /// 日常开发建议 high，出现「只思考不产出」再降到 low。
   final String? reasoningEffort;
+
+  /// 是否开启深度思考模式（`deepseek-flash` 默认关闭以换取秒级语音首字响应）
+  final bool enableThinking;
 
   final int timeoutSeconds;
 
-  /// 人设预设标识，目前仅 `socratic_master`（拆塔官）
+  /// 人设预设标识
   final String persona;
+
+  /// 是否像豆包一样自动流式朗读 AI 解答
+  final bool autoPlayTts;
+
+  /// DeepSeek TTS 音色：`stella`（海星女声）或 `tide`（暗潮男声）
+  final String ttsVoiceId;
+
+  /// DeepSeek ASR 语音转文字完成后是否自动发送提问
+  final bool autoSendAfterAsr;
 
   const AiSettings({
     this.enabled = false,
     this.protocol = AiProtocol.openai,
     this.baseUrl = 'https://api.deepseek.com',
-    this.model = 'deepseek-reasoner',
+    this.model = 'deepseek-flash',
     this.temperature = 0.7,
-    this.maxTokens = 8192,
+    this.maxTokens = 4096,
     this.reasoningEffort = 'high',
-    this.timeoutSeconds = 180,
-    this.persona = 'socratic_master',
+    this.enableThinking = false,
+    this.timeoutSeconds = 120,
+    this.persona = 'study_mode_socratic',
+    this.autoPlayTts = true,
+    this.ttsVoiceId = 'stella',
+    this.autoSendAfterAsr = true,
   });
 
-  /// 默认值即计划中实测验证过的 DeepSeek 配置
+  /// 默认值即 DeepSeek 最新公式推荐配置
   static const AiSettings defaults = AiSettings();
+
+  /// 将已下线的旧模型名平滑迁移至官方最新模型名
+  static String migrateModelName(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed == 'deepseek-reasoner' || trimmed == 'deepseek-chat') {
+      return 'deepseek-flash';
+    }
+    return trimmed;
+  }
 
   AiSettings copyWith({
     bool? enabled,
@@ -60,8 +77,12 @@ class AiSettings {
     int? maxTokens,
     String? reasoningEffort,
     bool clearReasoningEffort = false,
+    bool? enableThinking,
     int? timeoutSeconds,
     String? persona,
+    bool? autoPlayTts,
+    String? ttsVoiceId,
+    bool? autoSendAfterAsr,
   }) {
     return AiSettings(
       enabled: enabled ?? this.enabled,
@@ -73,8 +94,12 @@ class AiSettings {
       reasoningEffort: clearReasoningEffort
           ? null
           : (reasoningEffort ?? this.reasoningEffort),
+      enableThinking: enableThinking ?? this.enableThinking,
       timeoutSeconds: timeoutSeconds ?? this.timeoutSeconds,
       persona: persona ?? this.persona,
+      autoPlayTts: autoPlayTts ?? this.autoPlayTts,
+      ttsVoiceId: ttsVoiceId ?? this.ttsVoiceId,
+      autoSendAfterAsr: autoSendAfterAsr ?? this.autoSendAfterAsr,
     );
   }
 
@@ -89,11 +114,45 @@ class AiSettings {
     return u;
   }
 
-  /// 补全后的请求端点
+  /// 是否指向 DeepSeek 官方端点
+  bool get isDeepSeekEndpoint =>
+      normalizedBaseUrl.toLowerCase().contains('deepseek.com');
+
+  /// 补全后的对话请求端点
   String get chatEndpoint => switch (protocol) {
         AiProtocol.openai => '$normalizedBaseUrl/chat/completions',
         AiProtocol.anthropic => '$normalizedBaseUrl/v1/messages',
       };
+
+  /// DeepSeek ASR 语音转文字端点
+  String get asrEndpoint => '$normalizedBaseUrl/v1/tools/asr';
+
+  /// DeepSeek TTS 整段合成 HTTP 端点
+  String get ttsHttpEndpoint => '$normalizedBaseUrl/v1/tools/tts';
+
+  /// DeepSeek TTS 流式合成 WebSocket 地址
+  Uri ttsWebSocketUri({
+    String? voiceId,
+    String format = 'pcm',
+    bool filterMarkdown = true,
+  }) {
+    final parsed = Uri.parse(normalizedBaseUrl);
+    final wsScheme = parsed.scheme == 'http' ? 'ws' : 'wss';
+    final basePath = parsed.path.endsWith('/')
+        ? parsed.path.substring(0, parsed.path.length - 1)
+        : parsed.path;
+    return parsed.replace(
+      scheme: wsScheme,
+      path: '$basePath/v1/tools/tts',
+      queryParameters: {
+        'voice_id': (voiceId ?? ttsVoiceId).trim().isEmpty
+            ? 'stella'
+            : (voiceId ?? ttsVoiceId).trim(),
+        'format': format,
+        'filter_markdown': filterMarkdown.toString(),
+      },
+    );
+  }
 
   /// 配置是否已达可用状态（不含 key，key 单独校验）
   bool get isConfigured =>
@@ -113,16 +172,23 @@ class AiSettings {
 
   factory AiSettings.fromMap(Map<dynamic, dynamic>? map) {
     if (map == null) return defaults;
+    final rawModel = (map['model'] ?? defaults.model).toString();
+    final migratedModel = migrateModelName(rawModel);
     return AiSettings(
       enabled: map['enabled'] == true || map['enabled'] == 'true',
       protocol: AiProtocol.fromString(map['protocol']?.toString()),
       baseUrl: (map['base_url'] ?? defaults.baseUrl).toString(),
-      model: (map['model'] ?? defaults.model).toString(),
+      model: migratedModel.isEmpty ? defaults.model : migratedModel,
       temperature: _toDouble(map['temperature'], defaults.temperature),
       maxTokens: _toInt(map['max_tokens'], defaults.maxTokens),
       reasoningEffort: _nullableString(map['reasoning_effort']),
+      enableThinking: _toBool(map['enable_thinking'], defaults.enableThinking),
       timeoutSeconds: _toInt(map['timeout_seconds'], defaults.timeoutSeconds),
       persona: (map['persona'] ?? defaults.persona).toString(),
+      autoPlayTts: _toBool(map['auto_play_tts'], defaults.autoPlayTts),
+      ttsVoiceId: _validVoice(map['tts_voice_id']?.toString()),
+      autoSendAfterAsr:
+          _toBool(map['auto_send_after_asr'], defaults.autoSendAfterAsr),
     );
   }
 
@@ -135,9 +201,26 @@ class AiSettings {
         'max_tokens': maxTokens,
         if (reasoningEffort != null && reasoningEffort!.isNotEmpty)
           'reasoning_effort': reasoningEffort,
+        'enable_thinking': enableThinking,
         'timeout_seconds': timeoutSeconds,
         'persona': persona,
+        'auto_play_tts': autoPlayTts,
+        'tts_voice_id': ttsVoiceId,
+        'auto_send_after_asr': autoSendAfterAsr,
       };
+
+  static bool _toBool(dynamic v, bool fallback) {
+    if (v is bool) return v;
+    if (v == 'true') return true;
+    if (v == 'false') return false;
+    return fallback;
+  }
+
+  static String _validVoice(String? raw) {
+    final v = raw?.trim().toLowerCase();
+    if (v == 'stella' || v == 'tide') return v!;
+    return defaults.ttsVoiceId;
+  }
 
   static double _toDouble(dynamic v, double fallback) {
     if (v is num) return v.toDouble();
@@ -166,8 +249,12 @@ class AiSettings {
           other.temperature == temperature &&
           other.maxTokens == maxTokens &&
           other.reasoningEffort == reasoningEffort &&
+          other.enableThinking == enableThinking &&
           other.timeoutSeconds == timeoutSeconds &&
-          other.persona == persona;
+          other.persona == persona &&
+          other.autoPlayTts == autoPlayTts &&
+          other.ttsVoiceId == ttsVoiceId &&
+          other.autoSendAfterAsr == autoSendAfterAsr;
 
   @override
   int get hashCode => Object.hash(
@@ -178,11 +265,15 @@ class AiSettings {
         temperature,
         maxTokens,
         reasoningEffort,
+        enableThinking,
         timeoutSeconds,
         persona,
+        autoPlayTts,
+        ttsVoiceId,
+        autoSendAfterAsr,
       );
 
   @override
   String toString() =>
-      'AiSettings(${protocol.name} · $model · enabled=$enabled)';
+      'AiSettings(${protocol.name} · $model · thinking=$enableThinking · tts=$autoPlayTts/$ttsVoiceId)';
 }

@@ -1,8 +1,8 @@
-import 'package:absolute_moment_app/app.dart';
-import 'package:absolute_moment_app/data/storage/memory_file_store.dart';
-import 'package:absolute_moment_app/features/learn/learn_page.dart';
-import 'package:absolute_moment_app/providers.dart';
-import 'package:absolute_moment_app/shell.dart';
+import 'package:echomind_app/app.dart';
+import 'package:echomind_app/data/storage/memory_file_store.dart';
+import 'package:echomind_app/features/learn/learn_page.dart';
+import 'package:echomind_app/providers.dart';
+import 'package:echomind_app/shell.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';

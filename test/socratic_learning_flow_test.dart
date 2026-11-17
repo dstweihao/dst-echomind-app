@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:absolute_moment_app/data/ai/ai_client.dart';
-import 'package:absolute_moment_app/data/ai/prompts/personas.dart';
-import 'package:absolute_moment_app/data/ai/sensitive_content_guard.dart';
+import 'package:echomind_app/data/ai/ai_client.dart';
+import 'package:echomind_app/data/ai/prompts/personas.dart';
+import 'package:echomind_app/data/ai/sensitive_content_guard.dart';
 
 void main() {
   group('Socratic AI Learning Engine Tests', () {

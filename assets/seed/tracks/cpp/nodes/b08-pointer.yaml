@@ -5,17 +5,17 @@ phase: 1
 phase_name: "C++ 基础"
 order: 9
 description: >
-  指针保存内存地址。这一关只讲取地址、解引用以及空指针解引用的致命后果。
+  指针保存变量的内存地址。这一关只讲取地址运算符、解引用访问以及判空安全性。
 core_concepts:
-  - "指针变量存储内存地址；解引用未初始化指针或 nullptr 引发未定义行为崩溃"
+  - "指针存储的是变量的内存地址，使用 * 访问所指内容前必须确保其指向有效地址且非 nullptr"
 socratic_questions:
   - id: Q0_nullptr_deref
-    level: "指针解引用"
-    text: "int* p = nullptr; 紧接着 *p = 10; 编译器能查出来吗？运行时操作系统如何干预？"
+    level: "指针基础"
+    text: "如果写了 int a = 10; int* p = &a; 那么 p 和 *p 分别代表什么？为什么对 nullptr 进行 *p 赋值会导致程序直接崩溃？"
 interception:
-  minimum_pass_line: "能说清指针仅存地址，解引用非法地址将触发页错误信号导致进程崩溃"
-  on_failure: "AI 演示空指针解引用引发段错误（SIGSEGV）的物理过程，通过后回归本节点"
+  minimum_pass_line: "能说出 p 保存地址，*p 访问该地址对应的数据，nullptr 不指向任何合法内存，解引用会导致非法内存访问崩溃"
+  on_failure: "AI 展示指针地址与对应内存格子的物理对应图，通过后回归本节点"
 acceptance_criteria:
-  - "能准确使用 & 取地址与 * 解引用，并在操作前判空"
+  - "能准确运用取地址符 & 与解引用符 * 读写变量，并在解引用前进行非空校验"
 next_node: "b09-reference"
 prerequisites: ["b07-parameter-passing"]

@@ -5,17 +5,17 @@ phase: 1
 phase_name: "C++ 基础"
 order: 3
 description: >
-  定义一个变量和给它一个值在 C++ 里是两件独立的事。这一关只讲那些没人替你清零的地方。
+  声明变量必须显式赋予初值。这一关只讲未初始化变量的垃圾值风险与现代统一初始化。
 core_concepts:
-  - "自动变量不被零初始化：函数体内的 int x; 拿到的是栈上的垃圾值"
+  - "局部变量声明时不会自动清零，读取未初始化的变量会拿到内存遗留的随机垃圾值"
 socratic_questions:
   - id: Q0_uninitialized
-    level: "初始化"
-    text: "int x; 写在函数体里是随机的垃圾值，写成全局变量却一定是 0 —— 同一行代码，位置换了结果就变了，标准为什么要这么规定？"
+    level: "安全初始化"
+    text: "如果在函数体内写了 int count; 但忘了给它初值，直接拿去参与计算会有什么严重后果？推荐怎样初始化？"
 interception:
-  minimum_pass_line: "能说出自动变量默认不初始化，读取它的值是未定义行为"
-  on_failure: "AI 用内存快照演示自动变量里的垃圾值从哪里来，通过后回归本节点"
+  minimum_pass_line: "能指出局部变量默认含未定义垃圾值，推荐使用显式初始化（如 int count = 0 或 int count{0}）"
+  on_failure: "AI 演示读取未初始化变量导致计算结果错乱的示例，通过后回归本节点"
 acceptance_criteria:
-  - "能说出哪些变量会被自动零初始化，哪些不会，并说明读未初始化变量的后果"
+  - "能养成变量定义即初始化的习惯并能使用统一初始化语法预防未定义行为"
 next_node: "f02-operators"
 prerequisites: ["b02-builtin-types"]

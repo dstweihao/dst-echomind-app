@@ -1,5 +1,5 @@
-name: absolute_moment_app
-description: 绝对时刻APP —— 苏格拉底反诘法移动学习引擎
+name: echomind_app
+description: 回响 (EchoMind) —— 基于苏格拉底反诘法与 DeepSeek 语音的 AI 学习私教
 publish_to: 'none'
 version: 1.0.1+2
 
@@ -42,6 +42,8 @@ dependencies:
   package_info_plus: ^10.2.1
   url_launcher: ^6.3.2
   flutter_markdown: ^0.7.7+1
+  record: ^7.2.0
+  flutter_soloud: ^5.3.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -54,14 +56,15 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon/icon.png
 
 flutter_launcher_icons:
   image_path: "assets/icon/icon.png"
   android: true
   ios: true
   remove_alpha_ios: true
-  # 与前景母版里的方块同色 —— 方块边缘因此隐入背景，只留白色标记
-  adaptive_icon_background: "#165DFF"
+  adaptive_icon_background: "#2563EB"
   adaptive_icon_foreground: "assets/icon/icon_foreground.png"
   windows:
     generate: true
@@ -71,7 +74,4 @@ flutter_launcher_icons:
     generate: true
     image_path: "assets/icon/icon.png"
   web:
-    generate: true
-    image_path: "assets/icon/icon.png"
-    background_color: "#165DFF"
-    theme_color: "#165DFF"
+    generate: false

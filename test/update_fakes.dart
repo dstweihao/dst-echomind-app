@@ -1,5 +1,5 @@
-import 'package:absolute_moment_app/data/updates/update_client.dart';
-import 'package:absolute_moment_app/domain/models/update_info.dart';
+import 'package:echomind_app/data/updates/update_client.dart';
+import 'package:echomind_app/domain/models/update_info.dart';
 
 /// 不联网的更新检查器：给什么返回什么，也可以选择抛错。
 class FakeUpdateClient extends UpdateClient {

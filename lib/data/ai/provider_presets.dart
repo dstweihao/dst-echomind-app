@@ -1,13 +1,6 @@
 import '../../domain/enums/app_enums.dart';
 
 /// 预设服务商清单
-///
-/// AI 配置页的首要动作是「选一家」而不是「填两个框」——
-/// 服务地址与模型名是厂商给定的常量，让用户手打只会多出两个填错的机会。
-/// 这里把常见厂商的默认值固化下来；不在这张表里的端点走「自定义」。
-///
-/// 地址结尾**不写斜杠**，端点由 [AiSettings.chatEndpoint] 按协议拼接：
-/// OpenAI 兼容 → `{地址}/chat/completions`，Anthropic 兼容 → `{地址}/v1/messages`。
 class AiProviderPreset {
   /// 标识，与设置页的选中状态对应（`custom` 保留给手动填写）
   final String id;
@@ -15,7 +8,7 @@ class AiProviderPreset {
   /// 显示名
   final String name;
 
-  /// 服务地址
+  /// 服务地址（结尾不写斜杠）
   final String baseUrl;
 
   /// 默认模型名
@@ -32,6 +25,65 @@ class AiProviderPreset {
   });
 }
 
+/// DeepSeek 官方模型选项
+class DeepSeekModelOption {
+  final String id;
+  final String label;
+  final String subtitle;
+
+  const DeepSeekModelOption({
+    required this.id,
+    required this.label,
+    required this.subtitle,
+  });
+}
+
+/// DeepSeek 官方 TTS 音色选项
+class DeepSeekVoiceOption {
+  final String id;
+  final String name;
+  final String description;
+
+  const DeepSeekVoiceOption({
+    required this.id,
+    required this.name,
+    required this.description,
+  });
+}
+
+const List<DeepSeekModelOption> kDeepSeekModels = [
+  DeepSeekModelOption(
+    id: 'deepseek-flash',
+    label: 'DeepSeek Flash（推荐）',
+    subtitle: '响应极快，最适合语音实时互动，支持按需开关深度思考',
+  ),
+  DeepSeekModelOption(
+    id: 'deepseek-v4-pro',
+    label: 'DeepSeek V4 Pro',
+    subtitle: '旗舰深度推理，适合高难数学、算法与复杂逻辑剖析',
+  ),
+];
+
+const List<DeepSeekVoiceOption> kDeepSeekVoices = [
+  DeepSeekVoiceOption(
+    id: 'stella',
+    name: '海星 · 女声',
+    description: '自然亲切，像耐心的私教在耳边讲解',
+  ),
+  DeepSeekVoiceOption(
+    id: 'tide',
+    name: '暗潮 · 男声',
+    description: '沉稳清晰，适合逻辑推导与科普拆解',
+  ),
+];
+
+DeepSeekVoiceOption voiceOptionById(String id) {
+  for (final v in kDeepSeekVoices) {
+    if (v.id == id) return v;
+  }
+  return kDeepSeekVoices.first;
+}
+
 /// 「自定义」不是预设，但选中态要有个值
 const String kCustomProviderId = 'custom';
 
@@ -40,7 +92,7 @@ const List<AiProviderPreset> kAiProviderPresets = [
     id: 'deepseek',
     name: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-reasoner',
+    model: 'deepseek-flash',
     protocol: AiProtocol.openai,
   ),
   AiProviderPreset(
@@ -89,9 +141,6 @@ AiProviderPreset? presetById(String id) {
 }
 
 /// 反向匹配：已存的地址 + 模型命中了哪家预设。
-///
-/// 老用户存的是 DeepSeek 默认值，进来应该直接高亮在 DeepSeek 上，
-/// 而不是显示成「自定义」。匹配不上就老老实实回到自定义。
 String matchPresetId(String baseUrl, String model) {
   final url = _trimSlash(baseUrl.trim());
   final name = model.trim();

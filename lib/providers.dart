@@ -5,11 +5,14 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import 'data/ai/ai_client.dart';
 import 'data/ai/anthropic_client.dart';
+import 'data/ai/context_compactor.dart';
 import 'data/ai/openai_client.dart';
 import 'data/app_paths.dart';
 import 'data/credentials/credentials_store.dart';
 import 'data/repositories/checkin_repository.dart';
 import 'data/repositories/config_repository.dart';
+import 'data/repositories/conversation_repository.dart';
+import 'data/repositories/knowledge_repository.dart';
 import 'data/repositories/resource_scanner.dart';
 import 'data/repositories/track_repository.dart';
 import 'data/settings/app_settings_store.dart';
@@ -18,6 +21,10 @@ import 'data/storage/file_store_factory.dart';
 import 'data/updates/update_client.dart';
 import 'data/updates/update_config.dart';
 import 'data/updates/update_installer.dart';
+import 'data/voice/deepseek_asr_client.dart';
+import 'data/voice/deepseek_tts_client.dart';
+import 'data/voice/streaming_audio_player.dart';
+import 'data/voice/voice_recorder_service.dart';
 import 'domain/enums/app_enums.dart';
 import 'domain/models/action_card.dart';
 import 'domain/models/ai_settings.dart';
@@ -199,6 +206,58 @@ final aiClientProvider = Provider<AiClient?>((ref) {
 
 final aiAvailableProvider = Provider<bool>((ref) {
   return ref.watch(aiClientProvider) != null;
+});
+
+final knowledgeRepositoryProvider = Provider<KnowledgeRepository>((ref) {
+  return KnowledgeRepository(ref.watch(fileStoreProvider));
+});
+
+final conversationRepositoryProvider = Provider<ConversationRepository>((ref) {
+  return ConversationRepository(ref.watch(fileStoreProvider));
+});
+
+final contextCompactorProvider = Provider<ContextCompactor>((ref) {
+  return ContextCompactor();
+});
+
+final deepSeekAsrClientProvider = Provider<DeepSeekAsrClient?>((ref) {
+  final settings = ref.watch(aiSettingsProvider);
+  final apiKey = ref.watch(aiApiKeyProvider).value;
+  if (apiKey == null || apiKey.trim().isEmpty) return null;
+
+  final client = DeepSeekAsrClient(
+    endpoint: settings.asrEndpoint,
+    apiKey: apiKey.trim(),
+  );
+  ref.onDispose(client.dispose);
+  return client;
+});
+
+final deepSeekTtsClientProvider = Provider<DeepSeekTtsClient?>((ref) {
+  final settings = ref.watch(aiSettingsProvider);
+  final apiKey = ref.watch(aiApiKeyProvider).value;
+  if (apiKey == null || apiKey.trim().isEmpty) return null;
+
+  final client = DeepSeekTtsClient(
+    settings: settings,
+    apiKey: apiKey.trim(),
+  );
+  ref.onDispose(client.dispose);
+  return client;
+});
+
+final voiceRecorderServiceProvider = Provider<VoiceRecorderService>((ref) {
+  final recorder = RecordVoiceRecorderService();
+  ref.onDispose(() {
+    recorder.dispose();
+  });
+  return recorder;
+});
+
+final streamingAudioPlayerProvider = Provider<StreamingAudioPlayer>((ref) {
+  final player = SoLoudStreamingAudioPlayer();
+  ref.onDispose(player.dispose);
+  return player;
 });
 
 final allTracksProvider = FutureProvider<List<Track>>((ref) {

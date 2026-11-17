@@ -44,6 +44,22 @@ class AppToast {
     );
   }
 
+  /// 弹出轻量状态提示
+  static void showInfo(
+    BuildContext context, {
+    required String title,
+    String? detail,
+  }) {
+    show(
+      context,
+      icon: Icons.volume_up_rounded,
+      iconColor: const Color(0xFF165DFF),
+      iconBgColor: const Color(0xFFEFF6FF),
+      title: title,
+      detail: detail,
+    );
+  }
+
   /// 弹出通用居中提示
   static void show(
     BuildContext context, {

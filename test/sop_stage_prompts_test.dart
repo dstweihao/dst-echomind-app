@@ -1,7 +1,7 @@
-import 'package:absolute_moment_app/data/ai/prompts/stage_prompts.dart';
-import 'package:absolute_moment_app/domain/enums/app_enums.dart';
-import 'package:absolute_moment_app/domain/models/checkin.dart';
-import 'package:absolute_moment_app/domain/models/source_material.dart';
+import 'package:echomind_app/data/ai/prompts/stage_prompts.dart';
+import 'package:echomind_app/domain/enums/app_enums.dart';
+import 'package:echomind_app/domain/models/checkin.dart';
+import 'package:echomind_app/domain/models/source_material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 审校门的两条提示词路径

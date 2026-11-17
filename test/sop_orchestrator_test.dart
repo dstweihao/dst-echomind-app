@@ -1,7 +1,7 @@
-import 'package:absolute_moment_app/domain/enums/app_enums.dart';
-import 'package:absolute_moment_app/domain/models/action_card.dart';
-import 'package:absolute_moment_app/domain/models/checkin.dart';
-import 'package:absolute_moment_app/features/sop/domain/sop_orchestrator.dart';
+import 'package:echomind_app/domain/enums/app_enums.dart';
+import 'package:echomind_app/domain/models/action_card.dart';
+import 'package:echomind_app/domain/models/checkin.dart';
+import 'package:echomind_app/features/sop/domain/sop_orchestrator.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const orchestrator = SopOrchestrator();

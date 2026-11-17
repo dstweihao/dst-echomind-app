@@ -1,10 +1,11 @@
-import 'package:absolute_moment_app/data/credentials/credentials_store.dart';
-import 'package:absolute_moment_app/data/storage/memory_file_store.dart';
-import 'package:absolute_moment_app/features/ai_settings/ai_settings_page.dart';
-import 'package:absolute_moment_app/providers.dart';
+import 'package:echomind_app/data/credentials/credentials_store.dart';
+import 'package:echomind_app/data/storage/memory_file_store.dart';
+import 'package:echomind_app/features/ai_settings/ai_settings_page.dart';
+import 'package:echomind_app/providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeSecretStore extends SecretStore {
   String? saved;
@@ -21,6 +22,7 @@ Future<void> _pump(
   required _FakeSecretStore secrets,
   String initialKey = 'sk-test',
 }) async {
+  SharedPreferences.setMockInitialValues({});
   tester.view.physicalSize = const Size(1200, 2400);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
@@ -44,16 +46,25 @@ Future<void> _pump(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('渲染推荐模型名称与 API Key 输入卡片', (tester) async {
+  testWidgets('渲染最新 deepseek-flash 模型、语音设置与作者 GitHub 信息，无冗余统计卡片', (tester) async {
     final secrets = _FakeSecretStore();
     await _pump(tester, secrets: secrets, initialKey: 'sk-existing-key');
 
-    // 验证模型标签
-    expect(find.text('deepseek-reasoner'), findsWidgets);
-    // 验证标题与说明
-    expect(find.text('设置'), findsOneWidget);
-    // 验证存在保存按钮
-    expect(find.text('保存'), findsOneWidget);
+    // 验证最新推荐模型与语音设置
+    expect(find.text('deepseek-flash'), findsWidgets);
+    expect(find.text('自动播报回复'), findsOneWidget);
+    expect(find.text('海星 · 女声'), findsOneWidget);
+    expect(find.text('暗潮 · 男声'), findsOneWidget);
+
+    // 验证保留版本检查与作者个人主页信息
+    expect(find.text('检查更新'), findsOneWidget);
+    expect(find.text('github.com/dstweihao'), findsOneWidget);
+    expect(find.text('https://dstweihao.cn'), findsOneWidget);
+    expect(find.text('码上生长'), findsOneWidget);
+
+    // 验证已移除非核心学习统计卡片
+    expect(find.text('学习统计'), findsNothing);
+    expect(find.text('C++ 38 关进阶路线'), findsNothing);
   });
 
   testWidgets('输入新 Key 后点击保存正常触发写入', (tester) async {

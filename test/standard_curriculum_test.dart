@@ -1,8 +1,8 @@
-import 'package:absolute_moment_app/data/repositories/track_repository.dart';
-import 'package:absolute_moment_app/data/seed/standard_curriculum.dart';
-import 'package:absolute_moment_app/data/repositories/resource_scanner.dart';
-import 'package:absolute_moment_app/data/storage/memory_file_store.dart';
-import 'package:absolute_moment_app/providers.dart';
+import 'package:echomind_app/data/repositories/track_repository.dart';
+import 'package:echomind_app/data/seed/standard_curriculum.dart';
+import 'package:echomind_app/data/repositories/resource_scanner.dart';
+import 'package:echomind_app/data/storage/memory_file_store.dart';
+import 'package:echomind_app/providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

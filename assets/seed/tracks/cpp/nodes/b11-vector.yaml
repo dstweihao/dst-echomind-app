@@ -5,17 +5,17 @@ phase: 1
 phase_name: "C++ 基础"
 order: 13
 description: >
-  std::vector 维护连续内存。这一关只讲倍增扩容导致的迭代器失效。
+  std::vector 是连续内存的动态数组。这一关只讲动态扩容特性、尾部追加与安全索引访问。
 core_concepts:
-  - "vector 在容量不足时整块搬家并倍增扩容，导致原有指针和迭代器全部失效"
+  - "std::vector 自动管理连续动态内存，支持通过 push_back 追加元素以及通过下标或 at() 安全访问"
 socratic_questions:
   - id: Q0_vector_inval
-    level: "迭代器失效"
-    text: "在遍历 std::vector 的循环体内执行 push_back，为什么程序会神秘崩溃？"
+    level: "动态数组基础"
+    text: "访问 vector 元素时，使用 v[i] 和 v.at(i) 在遇到索引越界时有什么不同反应？"
 interception:
-  minimum_pass_line: "能说出 push_back 触发搬家后，循环迭代器指向已释放的旧内存"
-  on_failure: "AI 演示 vector 扩容搬迁后旧缓冲区释放过程，通过后回归本节点"
+  minimum_pass_line: "能指出 v[i] 不做越界检查会产生未定义行为，而 v.at(i) 会进行边界校验并抛出 std::out_of_range 异常"
+  on_failure: "AI 演示 vector 连续内存布局与 at() 边界检查逻辑，通过后回归本节点"
 acceptance_criteria:
-  - "能指出 vector 扩容触发迭代器失效的时序并在代码中规避"
+  - "能熟练使用 std::vector 完成动态元素的增删遍历，并理解下标越界防范"
 next_node: "b12-class"
 prerequisites: ["b10-string"]

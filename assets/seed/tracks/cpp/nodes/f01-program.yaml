@@ -5,17 +5,17 @@ phase: 1
 phase_name: "C++ 基础"
 order: 1
 description: >
-  一个 .cpp 文件从编辑到跑起来经历了哪几步。这一关只讲这条最短路径。
+  一个 .cpp 文件从编辑到跑起来经历了哪几步。这一关只讲最基础的程序骨架与最短执行路径。
 core_concepts:
-  - "main 函数是程序入口，cout 把字符串送到标准输出，g++ 把源码变成可执行文件"
+  - "main 函数是程序执行的唯一起点，cout 向控制台输出文本，返回 0 表示正常退出"
 socratic_questions:
   - id: Q0_compile
-    level: "编译运行"
-    text: "你写完 cout << 'hello' 后保存了文件，但程序还没有跑 —— 此刻发生了什么，什么时候才会有字出现在屏幕上？"
+    level: "程序骨架"
+    text: "写一个打印 Hello World 的程序，main 函数为什么必须返回一个整型值（如 return 0），这个数字是传给谁看的？"
 interception:
-  minimum_pass_line: "能说出编译和运行是两个独立的步骤，main 是程序执行的起点"
-  on_failure: "AI 画出从源文件到终端输出的全链路，通过后回归本节点"
+  minimum_pass_line: "能说出 main 是程序入口，返回值传给操作系统表示运行状态，0 代表正常结束"
+  on_failure: "AI 展示最小程序骨架与输出运行过程，通过后回归本节点"
 acceptance_criteria:
-  - "能独立写出、编译、运行一个打印任意文字的 C++ 程序"
+  - "能独立写出包含 iostream 与 main 函数的完整程序并正确解释 return 0 的含义"
 next_node: "b02-builtin-types"
 prerequisites: []

@@ -1,5 +1,13 @@
-/// 七阶段 SOP、轮转比例、难度评级等全局常量
+/// 应用品牌与全局常量
 library;
+
+class AppIdentity {
+  AppIdentity._();
+
+  static const String appName = '回响';
+  static const String englishName = 'EchoMind';
+  static const String tagline = '用大白话和苏格拉底反问，让每次思考都有回响';
+}
 
 class SopStages {
   SopStages._();

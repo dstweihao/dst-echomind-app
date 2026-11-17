@@ -1,4 +1,4 @@
-import 'package:absolute_moment_app/core/utils/filename_sanitizer.dart';
+import 'package:echomind_app/core/utils/filename_sanitizer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

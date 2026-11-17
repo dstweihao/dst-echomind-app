@@ -5,17 +5,17 @@ phase: 1
 phase_name: "C++ 基础"
 order: 2
 description: >
-  类型不是数据的标签，而是对同一串 0/1 的解释方式。这一关只讲内置类型到底规定了什么、又把什么留给了平台。
+  类型决定了数据的位宽与运算规则。这一关只讲最常用的基本内置类型及其常见初学陷阱。
 core_concepts:
-  - "类型决定位模式如何被解读：char 的符号性是实现定义的，不同平台结果可以不同"
+  - "基本类型决定存储空间与除法行为：整型除法自动截断小数，浮点型除法保留精度"
 socratic_questions:
   - id: Q0_char_signedness
-    level: "实现定义"
-    text: "同一个 char 变量存了 200，在有的编译器上打印出 -56，换一个编译器却是 200 —— 标准明明写了 char，为什么它允许两个答案都对？"
+    level: "类型与运算"
+    text: "若写 double result = 5 / 2; 得到的结果为什么是 2.0 而不是 2.5，怎样修改才能正确得到 2.5？"
 interception:
-  minimum_pass_line: "能说出 char 的符号性是实现定义的，标准没有规定它一定有符号还是无符号"
-  on_failure: "AI 列出各平台整型宽度对照表演示差异，通过后回归本节点"
+  minimum_pass_line: "能指出 5 和 2 都是 int，整数除法先执行截断为 2 后才转为 double，需至少一个操作数为浮点数"
+  on_failure: "AI 列出整型除法截断与类型转换的对比说明，通过后回归本节点"
 acceptance_criteria:
-  - "能解释为什么同一个字面量在不同编译器上打印出不同的数值是标准允许的行为"
+  - "能熟练选用 int、double、bool、char 等基本类型并规避整型除法精度丢失陷阱"
 next_node: "b03-variable-init"
 prerequisites: ["f01-program"]

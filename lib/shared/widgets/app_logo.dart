@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 
-/// 「绝对时刻」logo —— 一条进度轨 + 停在「此刻」的圆点。
+/// 「回响 (EchoMind)」品牌图标 —— 叠层光焰（Layered Knowledge Spark）
 ///
-/// 单一来源：既用于应用内展示，也由 [test/tools/generate_icons_test.dart]
-/// 光栅化生成各平台启动图标，避免另存 SVG/位图实体。
-///
-/// 刻意不用对话气泡 / 问号这类「AI 助手」意象：这是一个关于**进度**的
-/// 工具，标记的就是你此刻站在整条路线的哪里。
+/// 优先渲染高清位图母版 `assets/icon/icon.png`，并裁切为 Apple HIG 圆角方块；
+/// 在无资源环境的极简测试中自动降级为柔和矢量渐变占位。
 class AppLogo extends StatelessWidget {
   const AppLogo({
     super.key,
@@ -15,79 +12,45 @@ class AppLogo extends StatelessWidget {
     this.glyphScale = 1.0,
   });
 
-  /// 画布边长。
+  /// 画布边长
   final double size;
 
-  /// 是否铺满底色（用于不透明图标母版）。
+  /// 是否铺满方形底色（保留兼容参数）
   final bool background;
 
-  /// 圆角方块占画布边长比例（图标母版需留安全边距）。
+  /// 缩放比例（保留兼容参数）
   final double glyphScale;
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(
-      size: Size.square(size),
-      painter: AppLogoPainter(
-        background: background,
-        glyphScale: glyphScale,
+    final radius = background ? 0.0 : size * 0.22;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Image.asset(
+        'assets/icon/icon.png',
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.high,
+        errorBuilder: (_, _, _) => Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(radius),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF2563EB), Color(0xFF4F46E5)],
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Icon(
+            Icons.layers_rounded,
+            size: size * 0.54,
+            color: Colors.white,
+          ),
+        ),
       ),
     );
   }
-}
-
-class AppLogoPainter extends CustomPainter {
-  AppLogoPainter({required this.background, required this.glyphScale});
-
-  final bool background;
-  final double glyphScale;
-
-  /// 与主题同一个科技蓝 —— 全 APP 唯一的品牌色
-  static const Color _teal = Color(0xFF165DFF);
-  static const Color _white = Color(0xFFFFFFFF);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final s = size.shortestSide;
-    final tileSide = s * glyphScale;
-    final rect = Rect.fromCenter(
-      center: size.center(Offset.zero),
-      width: tileSide,
-      height: tileSide,
-    );
-
-    final tile = Paint()..color = _teal;
-    if (background) {
-      canvas.drawRect(Offset.zero & size, tile);
-    } else {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, Radius.circular(tileSide * 0.22)),
-        tile,
-      );
-    }
-
-    final center = rect.center;
-    final mark = Paint()
-      ..color = _white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = tileSide * 0.075
-      ..strokeCap = StrokeCap.round;
-
-    // 进度轨 —— 左右留白对称，整组标记在画布正中
-    final dotR = tileSide * 0.13;
-    final half = tileSide * 0.30;
-    canvas.drawLine(
-      Offset(center.dx - half, center.dy),
-      Offset(center.dx + half, center.dy),
-      mark,
-    );
-
-    // 「此刻」—— 轨道正中的圆点，就是时间线上的这一个点
-    canvas.drawCircle(center, dotR, Paint()..color = _white);
-  }
-
-  @override
-  bool shouldRepaint(AppLogoPainter oldDelegate) =>
-      oldDelegate.background != background ||
-      oldDelegate.glyphScale != glyphScale;
 }

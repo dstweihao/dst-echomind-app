@@ -1,4 +1,4 @@
-import 'package:absolute_moment_app/data/serialization/frontmatter.dart';
+import 'package:echomind_app/data/serialization/frontmatter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

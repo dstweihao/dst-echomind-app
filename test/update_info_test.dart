@@ -1,4 +1,4 @@
-import 'package:absolute_moment_app/domain/models/update_info.dart';
+import 'package:echomind_app/domain/models/update_info.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

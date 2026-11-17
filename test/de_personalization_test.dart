@@ -1,6 +1,6 @@
-import 'package:absolute_moment_app/core/constants/app_constants.dart';
-import 'package:absolute_moment_app/data/ai/prompts/personas.dart';
-import 'package:absolute_moment_app/domain/enums/app_enums.dart';
+import 'package:echomind_app/core/constants/app_constants.dart';
+import 'package:echomind_app/data/ai/prompts/personas.dart';
+import 'package:echomind_app/domain/enums/app_enums.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 全局去个性化铁律：内置内容（标准路线、轮转槽位、人设）

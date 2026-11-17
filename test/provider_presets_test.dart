@@ -1,6 +1,6 @@
-import 'package:absolute_moment_app/data/ai/provider_presets.dart';
-import 'package:absolute_moment_app/domain/enums/app_enums.dart';
-import 'package:absolute_moment_app/domain/models/ai_settings.dart';
+import 'package:echomind_app/data/ai/provider_presets.dart';
+import 'package:echomind_app/domain/enums/app_enums.dart';
+import 'package:echomind_app/domain/models/ai_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 预设服务商清单的护栏。

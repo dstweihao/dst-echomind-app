@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:absolute_moment_app/data/ai/sse_parser.dart';
+import 'package:echomind_app/data/ai/sse_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

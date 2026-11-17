@@ -1,8 +1,8 @@
-import 'package:absolute_moment_app/data/ai/ai_client.dart';
-import 'package:absolute_moment_app/domain/enums/app_enums.dart';
-import 'package:absolute_moment_app/domain/models/checkin.dart';
-import 'package:absolute_moment_app/features/sop/widgets/ai_chat_panel.dart';
-import 'package:absolute_moment_app/providers.dart';
+import 'package:echomind_app/data/ai/ai_client.dart';
+import 'package:echomind_app/domain/enums/app_enums.dart';
+import 'package:echomind_app/domain/models/checkin.dart';
+import 'package:echomind_app/features/sop/widgets/ai_chat_panel.dart';
+import 'package:echomind_app/providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

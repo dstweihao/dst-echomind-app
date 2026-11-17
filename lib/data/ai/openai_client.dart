@@ -4,8 +4,7 @@ import 'base_ai_client.dart';
 /// OpenAI 兼容协议客户端
 ///
 /// 端点：`POST {base_url}/chat/completions`
-/// 覆盖：DeepSeek、Kimi（月之暗面）、智谱 GLM、通义千问、OpenAI、以及绝大多数
-/// 国产大模型平台 —— 它们都提供 OpenAI 兼容接口。
+/// 覆盖 DeepSeek（含最新 `deepseek-flash` thinking 开关与 `deepseek-v4-pro`）及主流兼容平台。
 class OpenAiClient extends BaseAiClient {
   OpenAiClient({
     required super.settings,
@@ -40,10 +39,19 @@ class OpenAiClient extends BaseAiClient {
       'max_tokens': settings.maxTokens,
     };
 
-    // 部分平台支持推理档位（如 DeepSeek 的 low/high/max）。
-    // 不支持的平台会忽略未知字段，但为稳妥起见留空则不传。
     final effort = settings.reasoningEffort;
-    if (effort != null && effort.isNotEmpty) {
+    final isDeepSeekFlash = settings.isDeepSeekEndpoint &&
+        settings.model.trim().toLowerCase() == 'deepseek-flash';
+
+    if (isDeepSeekFlash) {
+      // DeepSeek-V4.1-Flash 默认开启深度思考；显式传递 thinking.type 精确控制延迟与推理深度
+      body['thinking'] = {
+        'type': settings.enableThinking ? 'enabled' : 'disabled',
+      };
+      if (settings.enableThinking && effort != null && effort.isNotEmpty) {
+        body['reasoning_effort'] = effort;
+      }
+    } else if (effort != null && effort.isNotEmpty) {
       body['reasoning_effort'] = effort;
     }
 
@@ -58,14 +66,11 @@ class OpenAiClient extends BaseAiClient {
     final first = choices.first;
     if (first is! Map) return null;
 
-    // 流式：delta.content
+    // 流式：只取 delta.content 正文，跳过 reasoning_content 避免语音播报内部草稿
     final delta = first['delta'];
     if (delta is Map) {
       final content = delta['content'];
       if (content is String && content.isNotEmpty) return content;
-
-      // 部分平台的推理模型把思考过程放在 reasoning_content，
-      // 这不是我们想要的正文，跳过。
     }
 
     // 非流式兜底：message.content

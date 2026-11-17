@@ -5,17 +5,17 @@ phase: 1
 phase_name: "C++ 基础"
 order: 16
 description: >
-  析构函数在对象生命终结时自动触发。这一关只讲确定性析构与裸 new 遗漏。
+  析构函数在对象离开作用域生命终结时自动触发。这一关只讲确定性析构与资源自动清理机制。
 core_concepts:
-  - "自动变量生命周期结束自动析构；通过基类指针释放对象时基类必须声明虚析构函数"
+  - "局部对象在离开花括号作用域时自动调用析构函数，保证持有的资源能被确定性自动释放"
 socratic_questions:
   - id: Q0_dtor_trigger
     level: "确定性析构"
-    text: "Base* p = new Derived(); delete p; 如果 Base 析构函数没有加 virtual，会漏掉哪一部分的清理？"
+    text: "在局部代码块 { MyResource obj; } 中，当执行流程跨出右花括号 } 的瞬间，obj 发生了什么？"
 interception:
-  minimum_pass_line: "能说清非虚析构只会调用基类析构，Derived 的特有成员和资源将永远无法被释放"
-  on_failure: "AI 演示函数返回时局部变量析构与堆内存孤立遗失图，通过后回归本节点"
+  minimum_pass_line: "能说出离开作用域时局部对象的析构函数会自动触发，无需手动清理即可收回资源"
+  on_failure: "AI 演示函数返回时栈上局部对象逐个自动触发析构的时序图，通过后回归本节点"
 acceptance_criteria:
-  - "能指出多态基类为何必须声明虚析构函数并规避派生类资源泄漏"
+  - "能熟练编写自定义析构函数并准确理解局部对象出作用域自动清理的生命周期机制"
 next_node: "00-memory-model"
 prerequisites: ["b13-constructor"]

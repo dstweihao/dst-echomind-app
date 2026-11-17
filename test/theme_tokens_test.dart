@@ -1,6 +1,6 @@
-import 'package:absolute_moment_app/core/theme/app_colors.dart';
-import 'package:absolute_moment_app/core/theme/app_spacing.dart';
-import 'package:absolute_moment_app/core/theme/app_typography.dart';
+import 'package:echomind_app/core/theme/app_colors.dart';
+import 'package:echomind_app/core/theme/app_spacing.dart';
+import 'package:echomind_app/core/theme/app_typography.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 设计 token 的护栏。

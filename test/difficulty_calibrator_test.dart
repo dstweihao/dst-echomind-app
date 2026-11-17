@@ -1,4 +1,4 @@
-import 'package:absolute_moment_app/features/sop/domain/difficulty_calibrator.dart';
+import 'package:echomind_app/features/sop/domain/difficulty_calibrator.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const calibrator = DifficultyCalibrator();

@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:absolute_moment_app/data/updates/update_client.dart';
-import 'package:absolute_moment_app/domain/models/update_info.dart';
-import 'package:absolute_moment_app/providers.dart';
-import 'package:absolute_moment_app/router.dart';
+import 'package:echomind_app/data/updates/update_client.dart';
+import 'package:echomind_app/domain/models/update_info.dart';
+import 'package:echomind_app/providers.dart';
+import 'package:echomind_app/router.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

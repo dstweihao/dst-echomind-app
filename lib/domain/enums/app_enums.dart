@@ -1,4 +1,4 @@
-import 'package:absolute_moment_app/core/constants/app_constants.dart';
+import 'package:echomind_app/core/constants/app_constants.dart';
 
 /// 绝对时刻APP — 核心枚举定义
 ///
