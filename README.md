@@ -1,12 +1,7 @@
 # 回响 (EchoMind)
 
 <p align="center">
-  <img src="assets/icon/icon.png" width="96" height="96" alt="回响 Logo" />
-</p>
-
-<p align="center">
-  一个基于 DeepSeek 对话与语音能力的跨平台学习应用。<br />
-  用苏格拉底反问带你一步步想明白问题，并将学通的内容持续沉淀为本地 Markdown 笔记。
+  <img src="assets/icon/icon.png" width="96" height="96" alt="回响" />
 </p>
 
 <p align="center">
@@ -16,56 +11,40 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-34C759" alt="MIT License" /></a>
 </p>
 
-## 为什么做这个
+基于 DeepSeek 对话和语音接口写的跨平台学习客户端。
 
-直接向大模型提问，往往只拿到一段现成答案，看过就忘。回响想解决两件事：
+平时直接问模型，拿到一段完整答案看过就忘。这个应用只留一条长期对话：问一个概念时，它会用大白话和类比拆开讲，每次追问一个小问题，直到你自己能说明白；聊透的内容会自动记到本地 Markdown 里，方便以后翻看和复习。
 
-- **只给启发，不直接喂答案**：遇到不懂的概念，先用大白话和类比建立直觉，每次只抛一个小问题引导你自己推导，直到能用自己的话讲清楚。
-- **单一长期对话，不堆垃圾窗口**：没有繁琐的多会话列表。所有学习都在同一条对话流里持续推进，聊透的知识点会自动提炼成高密度的本地 Markdown 文档，旧对话达到上下文上限后自动压缩，学习脉络不断档。
+## 功能
 
-## 主要功能
+- **苏格拉底式对话**：先看你卡在哪，再用日常例子把原理讲清楚，每次只问一个点，卡壳时给提示，搞懂后让你用一句话复述一遍。
+- **语音输入**：输入框可以切打字或语音。语音下按住说话、松手发送、上滑取消，录音转成 16kHz WAV 走 DeepSeek ASR（`/v1/tools/asr`）。
+- **流式播报**：文字边生成边通过 DeepSeek WebSocket TTS（`wss://api.deepseek.com/v1/tools/tts`）拉取 24kHz PCM，用 `flutter_soloud` 连续播放。支持随时打断、静音、点任意消息重播，内置 `stella`（海星）和 `tide`（暗潮）两个音色。
+- **单会话与自动笔记**：不建一堆杂乱窗口。每多聊 3 轮，后台静默把讲透的知识点提炼进本地笔记，纯闲聊不记；对话超过 20 条或 12,000 字时自动压缩旧消息，保留最近几轮原话，也可以手动点压缩。笔记只记录 `核心 / 类比 / 误区 / 复述`，默认不能删除。
+- **模型配置**：默认 `deepseek-flash`（默认关深度思考，回复快，可自己打开），也可以切 `deepseek-v4-pro`。设置页支持填 API Key、查账户余额、试听音色和检查更新。
 
-### 苏格拉底式引导学习
-- 先快速判断你的理解盲区，不发冗长问卷。
-- 优先用生活类比和已有笔记打通直觉，再落到专业术语。
-- 每次只围绕一个点追问；卡壳时换角度给台阶，最后用一句话复述收尾巩固。
+## 本地文件结构
 
-### 语音提问与流式朗读
-- **双模式输入**：输入框支持打字与语音随时切换；语音模式下按住说话、松手发送、上滑取消，录音打包为 16kHz WAV，经 DeepSeek ASR（`/v1/tools/asr`）转文字。
-- **边生成边播报**：模型流式输出的同时，通过 DeepSeek WebSocket TTS（`wss://api.deepseek.com/v1/tools/tts`）接收 24kHz 原始 PCM 音频流，由 `flutter_soloud` 连续播放，无分段停顿；支持随时打断、静音、点击任意回复气泡重播，内置 `stella`（海星）与 `tide`（暗潮）两种音色试听切换。
-
-### 自动知识沉淀与上下文压缩
-- **自动为主、手动为辅**：每新增 3 轮问答在后台静默提炼一次，达到上限（默认 20 条消息或 12,000 字）自动压缩旧对话并保留近期原话；顶栏也可随时手动触发。纯闲聊不会写入知识库。
-- **高信息密度笔记**：提炼遵循精炼原则，每条知识点仅记录 `核心 / 类比 / 误区 / 复述`，增量追加、默认不可删除。
-- **两层纯文本结构**：
-  - `KNOWLEDGE.md`：总知识索引，每次对话自动注入上下文，让模型知道你已经掌握了什么。
-  - `docs/<category>.md`：按学科或专题归类的详情文档，可在左侧抽屉随时翻阅，也可以直接带入当前对话继续复习。
-
-### 模型与设置
-- 默认使用 `deepseek-flash`（默认关闭深度思考以保证语音首字响应速度，可按需开启），支持切换 `deepseek-v4-pro`。
-- 设置页只保留 DeepSeek API Key、账户实时余额查询、模型与语音配置、版本检查更新。
-
-## 本地数据结构
-
-所有对话与笔记均为本地纯文本文件，可直接配合同步盘或 Git 备份：
+所有记录都是纯文本，放在本地文档目录的 `EchoMind` 下，自己配同步盘或 Git 备份就行：
 
 ```text
-<数据目录>/
-├── conversation.json     # 当前单一会话与滚动摘要
-├── KNOWLEDGE.md          # 总知识索引（自动注入对话上下文）
+EchoMind/
+├── config.yaml           # 模型与语音设置（不含 API Key）
+├── conversation.json     # 当前对话与历史摘要
+├── KNOWLEDGE.md          # 总知识清单（每次对话自动带给模型）
 └── docs/
-    ├── economics.md      # 按专题增量追加的知识笔记
+    ├── economics.md      # 按专题追加的笔记详情，左侧抽屉可翻阅或带入复习
     ├── programming.md
     └── ...
 ```
 
 ## 技术栈
 
-- **框架**：Flutter（Android / iOS / macOS / Windows）、Riverpod、GoRouter
-- **大模型与语音接口**：DeepSeek Chat（`deepseek-flash` / `deepseek-v4-pro`）、DeepSeek ASR、DeepSeek WebSocket / HTTP TTS
-- **音频链路**：`record`（16kHz PCM 录音与 WAV 封包）+ `flutter_soloud`（24kHz PCM 连续流式播放）
+- Flutter（Android / iOS / macOS / Windows）、Riverpod、GoRouter
+- DeepSeek Chat（`deepseek-flash` / `deepseek-v4-pro`）、DeepSeek ASR、DeepSeek TTS
+- `record`（16kHz 录音与 WAV 打包）+ `flutter_soloud`（24kHz PCM 流式播放）
 
-## 本地运行与测试
+## 运行与测试
 
 ```bash
 git clone https://github.com/dstweihao/dst-echomind-app.git
@@ -75,18 +54,18 @@ flutter pub get
 dart analyze
 flutter test
 
-# 按需指定目标平台运行（macos / windows / android / ios）
+# 目标平台：macos / windows / android / ios
 flutter run -d macos
 ```
 
-启动后点击右上角设置图标，填入自己的 DeepSeek API Key 即可使用。
+打开后点右上角设置，填入自己的 DeepSeek API Key 即可。
 
 ## 许可证
 
-本项目基于 [MIT License](LICENSE) 开源。
+[MIT License](LICENSE)
 
 ## 作者
 
 - GitHub: [github.com/dstweihao](https://github.com/dstweihao)
-- 个人网站: [https://dstweihao.cn](https://dstweihao.cn)
+- 网站: [https://dstweihao.cn](https://dstweihao.cn)
 - 微信公众号: `码上生长`
