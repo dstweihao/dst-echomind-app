@@ -134,49 +134,52 @@ class KnowledgeDocSheet extends StatelessWidget {
       ),
       body: SafeArea(
         top: false,
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 780),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(22, 20, 22, 36),
-              child: MarkdownBody(
-                data: markdown.isEmpty ? '（暂无内容）' : markdown,
-                selectable: true,
-                styleSheet: MarkdownStyleSheet(
-                  blockSpacing: 12,
-                  h1: const TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF0F172A),
-                    height: 1.4,
-                  ),
-                  h2: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1E293B),
-                    height: 1.45,
-                  ),
-                  h3: const TextStyle(
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF1E293B),
-                    height: 1.45,
-                  ),
-                  p: const TextStyle(
-                    fontSize: 15,
-                    height: 1.7,
-                    color: Color(0xFF334155),
-                  ),
-                  code: const TextStyle(
-                    fontSize: 13.5,
-                    color: Color(0xFF0F172A),
-                    backgroundColor: Color(0xFFF1F5F9),
-                    fontFamily: 'Menlo, Monaco, monospace',
-                  ),
-                  listBullet: TextStyle(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.bold,
+        child: ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(22, 20, 22, 36),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 780),
+                child: MarkdownBody(
+                  data: markdown.isEmpty ? '（暂无内容）' : markdown,
+                  selectable: true,
+                  styleSheet: MarkdownStyleSheet(
+                    blockSpacing: 12,
+                    h1: const TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0F172A),
+                      height: 1.4,
+                    ),
+                    h2: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1E293B),
+                      height: 1.45,
+                    ),
+                    h3: const TextStyle(
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1E293B),
+                      height: 1.45,
+                    ),
+                    p: const TextStyle(
+                      fontSize: 15,
+                      height: 1.7,
+                      color: Color(0xFF334155),
+                    ),
+                    code: const TextStyle(
+                      fontSize: 13.5,
+                      color: Color(0xFF0F172A),
+                      backgroundColor: Color(0xFFF1F5F9),
+                      fontFamily: 'Menlo, Monaco, monospace',
+                    ),
+                    listBullet: TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),

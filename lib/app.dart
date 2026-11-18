@@ -45,6 +45,7 @@ class _EchoMindAppState extends ConsumerState<EchoMindApp> {
       key: ValueKey(dark),
       title: AppIdentity.appName,
       debugShowCheckedModeBanner: false,
+      scrollBehavior: const MaterialScrollBehavior().copyWith(scrollbars: false),
       theme: dark ? AppTheme.darkTheme : AppTheme.lightTheme,
       routerConfig: _router,
     );
