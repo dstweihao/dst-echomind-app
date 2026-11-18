@@ -214,6 +214,7 @@ typedef UpdateInstallerFn = Future<InstallResult> Function(
   ReleaseInfo release, {
   http.Client? httpClient,
   void Function(double? progress)? onProgress,
+  void Function(int receivedBytes, int? totalBytes)? onBytesProgress,
 });
 
 final updateInstallerProvider =

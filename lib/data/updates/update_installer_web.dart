@@ -3,14 +3,17 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../domain/models/update_info.dart';
 
+ReleaseAsset? selectCurrentPlatformAsset(ReleaseInfo release) => null;
+
 /// Web：浏览器沙箱里没法把安装包落到本机，只能把人送到 Release 页。
 ///
-/// [httpClient] 与 [onProgress] 刻意忽略 —— 这里不 import `dart:io`，
+/// [httpClient] 与进度回调刻意忽略 —— 这里不 import `dart:io`，
 /// 保证 Web 产物干净。
 Future<InstallResult> installUpdate(
   ReleaseInfo release, {
   http.Client? httpClient,
   void Function(double? progress)? onProgress,
+  void Function(int receivedBytes, int? totalBytes)? onBytesProgress,
 }) =>
     openReleasePage(release.htmlUrl);
 

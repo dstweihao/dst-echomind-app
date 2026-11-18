@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:echomind_app/data/updates/update_config.dart';
 import 'package:echomind_app/data/updates/update_installer_io.dart';
 import 'package:echomind_app/domain/models/update_info.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -111,15 +112,18 @@ void main() {
     );
 
     final progress = <double?>[];
+    final bytesLog = <(int, int?)>[];
     final result = await installUpdate(
       _desktopRelease(),
       httpClient: httpClient,
       onProgress: progress.add,
+      onBytesProgress: (r, t) => bytesLog.add((r, t)),
     );
 
     expect(result.outcome, InstallOutcome.launched);
     expect(result.isSuccess, true);
     expect(progress, [0.4, 1.0], reason: '进度按已收字节算，不是按块数');
+    expect(bytesLog, [(4, 10), (10, 10)]);
 
     final files = writtenFiles();
     expect(files, hasLength(1));
@@ -223,5 +227,63 @@ void main() {
       expect(result.outcome, InstallOutcome.failed);
       expect(result.message, contains('无法打开'));
     });
+  });
+
+  test('Android 平台规则能正确匹配 .apk 附件，且已有同大小缓存文件时不重复下载', () async {
+    const apkRelease = ReleaseInfo(
+      tagName: 'v1.0.3',
+      assets: [
+        ReleaseAsset(
+          name: 'EchoMind-v1.0.3-macos.dmg',
+          browserDownloadUrl: _downloadUrl,
+          size: 100,
+        ),
+        ReleaseAsset(
+          name: 'EchoMind-v1.0.3-android.apk',
+          browserDownloadUrl: _downloadUrl,
+          size: 200,
+        ),
+      ],
+    );
+    final picked = selectInstallerAsset(apkRelease, UpdateConfig.androidAssetExts);
+    expect(picked?.name, 'EchoMind-v1.0.3-android.apk');
+
+    // 验证桌面端命中缓存时直接复用文件，不再发起 HTTP 请求
+    final cachedRelease = ReleaseInfo(
+      tagName: 'v1.2.0',
+      assets: [
+        ReleaseAsset(
+          name: 'AbsoluteMoment-1.2.0.dmg',
+          browserDownloadUrl: _downloadUrl,
+          size: 8,
+        ),
+        ReleaseAsset(
+          name: 'AbsoluteMoment-1.2.0.exe',
+          browserDownloadUrl: _downloadUrl,
+          size: 8,
+        ),
+        ReleaseAsset(
+          name: 'AbsoluteMoment-1.2.0.AppImage',
+          browserDownloadUrl: _downloadUrl,
+          size: 8,
+        ),
+      ],
+    );
+    final targetName = Platform.isMacOS
+        ? 'AbsoluteMoment-1.2.0.dmg'
+        : Platform.isWindows
+            ? 'AbsoluteMoment-1.2.0.exe'
+            : 'AbsoluteMoment-1.2.0.AppImage';
+    File('${tempDir.path}/$targetName').writeAsBytesSync(List.filled(8, 0x55));
+
+    final progress = <double?>[];
+    final result = await installUpdate(
+      cachedRelease,
+      httpClient: httpClient,
+      onProgress: progress.add,
+    );
+    expect(result.outcome, InstallOutcome.launched);
+    expect(progress, [1.0]);
+    verifyNever(() => httpClient.send(any()));
   });
 }

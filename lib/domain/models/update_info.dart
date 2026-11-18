@@ -30,7 +30,7 @@ class ReleaseInfo {
   });
 }
 
-enum InstallOutcome { launched, openedInBrowser, failed }
+enum InstallOutcome { launched, openedInBrowser, needsPermission, failed }
 
 class InstallResult {
   final InstallOutcome outcome;
@@ -38,7 +38,9 @@ class InstallResult {
 
   const InstallResult(this.outcome, {this.message = ''});
 
-  bool get isSuccess => outcome != InstallOutcome.failed;
+  bool get isSuccess =>
+      outcome == InstallOutcome.launched ||
+      outcome == InstallOutcome.openedInBrowser;
 }
 
 /// 按扩展名优先级挑出该平台的安装包；都不匹配返回 null。

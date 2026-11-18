@@ -145,5 +145,71 @@ void main() {
 
     expect(find.text('发现新版本 v1.0.2'), findsOneWidget);
     expect(find.text('修复若干边界问题'), findsOneWidget);
+    expect(find.text('立即更新'), findsOneWidget);
+    expect(find.text('稍后再说'), findsOneWidget);
+  });
+
+  testWidgets('更新弹窗以 Markdown 渲染说明（无 ### / ** 源码）并在应用内展示下载进度条', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final secrets = _FakeSecretStore();
+    final container = ProviderContainer(
+      overrides: [
+        initialStorageRootProvider.overrideWithValue(''),
+        fileStoreProvider.overrideWithValue(MemoryFileStore()),
+        secretStoreProvider.overrideWithValue(secrets),
+        aiApiKeyProvider.overrideWith((ref) async => ''),
+        appVersionProvider.overrideWith((ref) async => '1.0.2'),
+        updateClientProvider.overrideWithValue(
+          FakeUpdateClient(
+            release: const ReleaseInfo(
+              tagName: 'v1.0.3',
+              notes: '### 新功能\n- **联网搜索**：支持实时查资料',
+              htmlUrl:
+                  'https://github.com/dstweihao/dst-echomind-app/releases/tag/v1.0.3',
+            ),
+          ),
+        ),
+        updateInstallerProvider.overrideWithValue(
+          (release, {httpClient, onProgress, onBytesProgress}) async {
+            onProgress?.call(0.5);
+            onBytesProgress?.call(30 * 1024 * 1024, 60 * 1024 * 1024);
+            return const InstallResult(
+              InstallOutcome.needsPermission,
+              message: '请允许安装未知应用后返回点击立即安装',
+            );
+          },
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(updateStatusProvider.notifier).check();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AiSettingsPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('发现 v1.0.3'));
+    await tester.pumpAndSettle();
+
+    // 不出现原始 ### / ** 符号
+    expect(find.textContaining('###'), findsNothing);
+    expect(find.textContaining('**'), findsNothing);
+    expect(find.text('新功能'), findsOneWidget);
+
+    // 点击「立即更新」后触发应用内下载并按返回状态切换为「立即安装」
+    await tester.tap(find.text('立即更新'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('请允许安装未知应用后返回点击立即安装'), findsOneWidget);
+    expect(find.text('立即安装'), findsOneWidget);
   });
 }

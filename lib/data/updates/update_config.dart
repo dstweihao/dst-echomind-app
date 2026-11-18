@@ -17,6 +17,7 @@ class UpdateConfig {
   /// `.zip` 一律垫底 —— 它不是安装程序，只能打开压缩包。
   static const List<String> windowsAssetExts = ['.exe', '.msi', '.zip'];
   static const List<String> macosAssetExts = ['.dmg', '.pkg', '.zip'];
+  static const List<String> androidAssetExts = ['.apk'];
   static const List<String> linuxAssetExts = [
     '.appimage',
     '.deb',

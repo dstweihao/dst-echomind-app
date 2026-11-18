@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
@@ -11,6 +12,7 @@ import '../../core/theme/app_colors.dart';
 import '../../data/ai/provider_presets.dart';
 import '../../data/updates/update_client.dart';
 import '../../data/updates/update_config.dart';
+import '../../data/updates/update_installer.dart';
 import '../../domain/enums/app_enums.dart';
 import '../../domain/models/ai_settings.dart';
 import '../../domain/models/update_info.dart';
@@ -1072,168 +1074,576 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
   }
 
   void _showUpdateDialog(String current, ReleaseInfo release) {
-    bool downloading = false;
-    double? downloadProgress;
-    String? errorMsg;
+    final matchedAsset = selectCurrentPlatformAsset(release);
+    final assetSizeBytes = matchedAsset?.size ?? 0;
 
-    showDialog(
+    bool downloading = false;
+    bool cancelledByUser = false;
+    bool needsPermission = false;
+    double? downloadProgress;
+    int receivedBytes = 0;
+    int? totalBytes = assetSizeBytes > 0 ? assetSizeBytes : null;
+    String? errorMsg;
+    String? permissionMsg;
+    http.Client? activeClient;
+
+    String formatMb(int bytes) {
+      if (bytes <= 0) return '0 MB';
+      final mb = bytes / (1024 * 1024);
+      return mb >= 10
+          ? '${mb.toStringAsFixed(1)} MB'
+          : '${mb.toStringAsFixed(2)} MB';
+    }
+
+    showDialog<void>(
       context: context,
+      barrierDismissible: false,
       builder: (dialogCtx) => StatefulBuilder(
         builder: (context, setDialogState) {
-          return AlertDialog(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: Row(
-              children: [
-                Icon(Icons.system_update_rounded,
-                    color: AppColors.primary, size: 22),
-                const SizedBox(width: 8),
-                Text(
-                  '发现新版本 ${release.tagName}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '当前版本 v$current，最新发布 ${release.tagName}',
-                  style:
-                      const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-                ),
-                if (release.notes.trim().isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Container(
-                    width: double.infinity,
-                    constraints: const BoxConstraints(maxHeight: 140),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                    ),
-                    child: SingleChildScrollView(
-                      child: Text(
-                        release.notes.trim(),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF334155),
-                          height: 1.4,
-                        ),
+          Future<void> startInstall() async {
+            final client = http.Client();
+            activeClient = client;
+            cancelledByUser = false;
+            setDialogState(() {
+              downloading = true;
+              errorMsg = null;
+              permissionMsg = null;
+              downloadProgress = null;
+              receivedBytes = 0;
+              totalBytes = assetSizeBytes > 0 ? assetSizeBytes : null;
+            });
+
+            try {
+              final installer = ref.read(updateInstallerProvider);
+              final result = await installer(
+                release,
+                httpClient: client,
+                onProgress: (p) {
+                  if (dialogCtx.mounted && !cancelledByUser) {
+                    setDialogState(() => downloadProgress = p);
+                  }
+                },
+                onBytesProgress: (received, total) {
+                  if (dialogCtx.mounted && !cancelledByUser) {
+                    setDialogState(() {
+                      receivedBytes = received;
+                      if (total != null && total > 0) totalBytes = total;
+                    });
+                  }
+                },
+              );
+
+              if (cancelledByUser) return;
+
+              if (result.outcome == InstallOutcome.needsPermission) {
+                if (dialogCtx.mounted) {
+                  setDialogState(() {
+                    downloading = false;
+                    needsPermission = true;
+                    permissionMsg = result.message;
+                  });
+                }
+                return;
+              }
+
+              if (!result.isSuccess) {
+                if (dialogCtx.mounted) {
+                  setDialogState(() {
+                    downloading = false;
+                    errorMsg = result.message;
+                  });
+                }
+                return;
+              }
+
+              if (dialogCtx.mounted) {
+                Navigator.of(dialogCtx).pop();
+              }
+              if (mounted) {
+                AppToast.showSuccess(
+                  this.context,
+                  title: result.outcome == InstallOutcome.launched
+                      ? '安装包已就绪'
+                      : '已打开下载页面',
+                  detail: result.message.isNotEmpty
+                      ? result.message
+                      : (result.outcome == InstallOutcome.launched
+                          ? '请按提示完成更新'
+                          : null),
+                );
+              }
+            } catch (e) {
+              if (!cancelledByUser && dialogCtx.mounted) {
+                setDialogState(() {
+                  downloading = false;
+                  errorMsg = '下载安装失败：$e';
+                });
+              }
+            } finally {
+              if (identical(activeClient, client)) {
+                activeClient = null;
+              }
+              client.close();
+            }
+          }
+
+          void cancelDownload() {
+            cancelledByUser = true;
+            activeClient?.close();
+            activeClient = null;
+            if (dialogCtx.mounted) {
+              setDialogState(() {
+                downloading = false;
+                downloadProgress = null;
+                receivedBytes = 0;
+              });
+            }
+          }
+
+          final fallbackUrl = matchedAsset?.browserDownloadUrl.isNotEmpty == true
+              ? matchedAsset!.browserDownloadUrl
+              : release.htmlUrl;
+
+          final primaryLabel = needsPermission
+              ? '立即安装'
+              : (errorMsg != null ? '重试下载' : '立即更新');
+
+          return PopScope(
+            canPop: !downloading,
+            child: Dialog(
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.transparent,
+              insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 380),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 顶部标题与版本胶囊
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              Icons.system_update_rounded,
+                              color: AppColors.primary,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '发现新版本 ${release.tagName}',
+                                  style: const TextStyle(
+                                    fontSize: 16.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF0F172A),
+                                    height: 1.25,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 7,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF1F5F9),
+                                        borderRadius: BorderRadius.circular(5),
+                                      ),
+                                      child: Text(
+                                        'v$current',
+                                        style: const TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF64748B),
+                                        ),
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.arrow_forward_rounded,
+                                      size: 13,
+                                      color: Color(0xFF94A3B8),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 7,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary
+                                            .withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(5),
+                                      ),
+                                      child: Text(
+                                        release.tagName,
+                                        style: TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                    ),
+                                    if (assetSizeBytes > 0)
+                                      Text(
+                                        '· ${formatMb(assetSizeBytes)}',
+                                        style: const TextStyle(
+                                          fontSize: 11.5,
+                                          color: Color(0xFF94A3B8),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
+
+                      // 更新内容（Markdown 渲染，告别 ### / ** 源码）
+                      if (release.notes.trim().isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          constraints: const BoxConstraints(maxHeight: 240),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: const Color(0xFFE2E8F0),
+                            ),
+                          ),
+                          child: ScrollConfiguration(
+                            behavior: ScrollConfiguration.of(context)
+                                .copyWith(scrollbars: false),
+                            child: SingleChildScrollView(
+                              child: MarkdownBody(
+                                data: release.notes.trim(),
+                                shrinkWrap: true,
+                                styleSheet: MarkdownStyleSheet(
+                                  h1: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF0F172A),
+                                    height: 1.4,
+                                  ),
+                                  h2: const TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF0F172A),
+                                    height: 1.4,
+                                  ),
+                                  h3: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF0F172A),
+                                    height: 1.4,
+                                  ),
+                                  h3Padding:
+                                      const EdgeInsets.only(top: 6, bottom: 4),
+                                  p: const TextStyle(
+                                    fontSize: 12.8,
+                                    color: Color(0xFF334155),
+                                    height: 1.55,
+                                  ),
+                                  strong: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                  listBullet: TextStyle(
+                                    fontSize: 12.8,
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                  listIndent: 16,
+                                  blockSpacing: 8,
+                                  code: const TextStyle(
+                                    fontSize: 11.8,
+                                    color: Color(0xFF1E293B),
+                                    backgroundColor: Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+
+                      // 应用内实时下载进度条
+                      if (downloading) ...[
+                        const SizedBox(height: 14),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: AppColors.primary.withValues(alpha: 0.16),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      downloadProgress != null
+                                          ? '正在下载安装包…'
+                                          : '正在连接下载源…',
+                                      style: const TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF1E293B),
+                                      ),
+                                    ),
+                                  ),
+                                  if (downloadProgress != null)
+                                    Text(
+                                      '${(downloadProgress! * 100).toStringAsFixed(0)}%',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.primary,
+                                        fontFeatures: const [
+                                          FontFeature.tabularFigures(),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: LinearProgressIndicator(
+                                  value: downloadProgress,
+                                  minHeight: 7,
+                                  backgroundColor: const Color(0xFFE2E8F0),
+                                  valueColor: AlwaysStoppedAnimation(
+                                    AppColors.primary,
+                                  ),
+                                ),
+                              ),
+                              if (receivedBytes > 0) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  totalBytes != null && totalBytes! > 0
+                                      ? '${formatMb(receivedBytes)} / ${formatMb(totalBytes!)}'
+                                      : '已下载 ${formatMb(receivedBytes)}',
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: Color(0xFF64748B),
+                                    fontFeatures: [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      // Android 未知来源授权指引
+                      if (permissionMsg != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFFBEB),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: const Color(0xFFFDE68A),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.info_outline_rounded,
+                                size: 16,
+                                color: Color(0xFFD97706),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  permissionMsg!,
+                                  style: const TextStyle(
+                                    fontSize: 12.2,
+                                    color: Color(0xFF92400E),
+                                    height: 1.45,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      // 下载失败提示 + 仅失败时提供的直链兜底
+                      if (errorMsg != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF2F2),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: const Color(0xFFFECACA),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                errorMsg!,
+                                style: const TextStyle(
+                                  fontSize: 12.2,
+                                  color: Color(0xFFDC2626),
+                                  height: 1.4,
+                                ),
+                              ),
+                              if (fallbackUrl.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                InkWell(
+                                  onTap: () => _openUrl(fallbackUrl),
+                                  child: Text(
+                                    '网络较慢？点此通过浏览器直接下载安装包',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.primary,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      // 底部操作区
+                      const SizedBox(height: 18),
+                      if (downloading)
+                        SizedBox(
+                          width: double.infinity,
+                          height: 44,
+                          child: OutlinedButton(
+                            onPressed: cancelDownload,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF64748B),
+                              side: const BorderSide(color: Color(0xFFE2E8F0)),
+                              padding: EdgeInsets.zero,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(11),
+                              ),
+                            ),
+                            child: const Text(
+                              '取消下载',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SizedBox(
+                                height: 44,
+                                child: TextButton(
+                                  onPressed: () =>
+                                      Navigator.of(dialogCtx).pop(),
+                                  style: TextButton.styleFrom(
+                                    backgroundColor: const Color(0xFFF1F5F9),
+                                    foregroundColor: const Color(0xFF475569),
+                                    padding: EdgeInsets.zero,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(11),
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    '稍后再说',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              flex: 2,
+                              child: SizedBox(
+                                height: 44,
+                                child: ElevatedButton(
+                                  onPressed: startInstall,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.primary,
+                                    foregroundColor: Colors.white,
+                                    padding: EdgeInsets.zero,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(11),
+                                    ),
+                                    elevation: 0,
+                                  ),
+                                  child: Text(
+                                    primaryLabel,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
                   ),
-                ],
-                if (downloading) ...[
-                  const SizedBox(height: 14),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: downloadProgress,
-                      minHeight: 6,
-                      backgroundColor: const Color(0xFFF1F5F9),
-                      valueColor: AlwaysStoppedAnimation(AppColors.primary),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    downloadProgress != null
-                        ? '正在下载 ${(downloadProgress! * 100).toStringAsFixed(0)}%…'
-                        : '正在连接下载源…',
-                    style:
-                        const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                  ),
-                ],
-                if (errorMsg != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    errorMsg!,
-                    style:
-                        const TextStyle(fontSize: 12, color: Color(0xFFEF4444)),
-                  ),
-                ],
-              ],
-            ),
-            actions: [
-              if (!downloading)
-                TextButton(
-                  onPressed: () => Navigator.of(dialogCtx).pop(),
-                  child: const Text(
-                    '暂不更新',
-                    style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
-                  ),
-                ),
-              ElevatedButton(
-                onPressed: downloading
-                    ? null
-                    : () async {
-                        setDialogState(() {
-                          downloading = true;
-                          errorMsg = null;
-                        });
-                        try {
-                          final installer = ref.read(updateInstallerProvider);
-                          final result = await installer(
-                            release,
-                            onProgress: (p) {
-                              if (dialogCtx.mounted) {
-                                setDialogState(() => downloadProgress = p);
-                              }
-                            },
-                          );
-                          if (!result.isSuccess) {
-                            if (dialogCtx.mounted) {
-                              setDialogState(() {
-                                downloading = false;
-                                errorMsg = result.message;
-                              });
-                            }
-                          } else {
-                            if (dialogCtx.mounted) {
-                              Navigator.of(dialogCtx).pop();
-                            }
-                            if (mounted) {
-                              AppToast.showSuccess(
-                                this.context,
-                                title:
-                                    result.outcome == InstallOutcome.launched
-                                        ? '已启动安装程序'
-                                        : '已打开下载页面',
-                                detail:
-                                    result.outcome == InstallOutcome.launched
-                                        ? '按提示安装完成后请重启应用'
-                                        : null,
-                              );
-                            }
-                          }
-                        } catch (e) {
-                          if (dialogCtx.mounted) {
-                            setDialogState(() {
-                              downloading = false;
-                              errorMsg = '下载安装失败：$e';
-                            });
-                          }
-                        }
-                      },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  elevation: 0,
-                ),
-                child: Text(
-                  downloading ? '下载中…' : '立即下载更新',
-                  style: const TextStyle(fontSize: 13),
                 ),
               ),
-            ],
+            ),
           );
         },
       ),
