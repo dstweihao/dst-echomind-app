@@ -19,57 +19,118 @@ const _sampleDocMarkdown = '''
 ''';
 
 void main() {
-  testWidgets('专题文档渲染结构化轻卡片，支持遮住答案自测与点击单卡核对', (tester) async {
+  testWidgets('专题文档支持复习菜单（遮住答案自测 / AI 抽查）与退出自测状态切换', (tester) async {
+    var aiReviewTapped = 0;
+
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: KnowledgeDocSheet(
           title: '编程',
           subtitle: 'docs/programming.md',
           markdown: _sampleDocMarkdown,
+          onReviewPressed: () => aiReviewTapped++,
         ),
       ),
     );
 
-    // 默认卡片全展开
+    // 1. 默认卡片全展开，顶栏展示「复习」胶囊
     expect(find.text('递归'), findsOneWidget);
-    expect(find.text('递归的终止条件'), findsOneWidget);
-    expect(find.text('核心'), findsNWidgets(2));
+    expect(find.text('复习'), findsOneWidget);
     expect(find.text('大问题交小一号自身 → 至基线直接答'), findsOneWidget);
 
-    // 点击顶栏眼睛图标进入「遮住答案自测」模式
-    await tester.tap(find.byKey(const Key('doc_self_test_toggle_btn')));
+    // 2. 点击「复习」→ 弹出 2 个清晰选项 → 选择「遮住答案自测」
+    await tester.tap(find.byKey(const Key('doc_review_menu_btn')));
+    await tester.pumpAndSettle();
+    expect(find.text('遮住答案自测'), findsOneWidget);
+    expect(find.text('AI 苏格拉底抽查'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('review_option_self_test')));
     await tester.pumpAndSettle();
 
+    // 顶栏胶囊切换为「退出自测」，卡片正文被遮挡
+    expect(find.text('退出自测'), findsOneWidget);
     expect(find.text('先自己回忆，点一下核对'), findsNWidgets(2));
     expect(find.text('大问题交小一号自身 → 至基线直接答'), findsNothing);
 
-    // 点击第一张卡片展开核对，第二张保持遮挡
+    // 3. 点击第一张卡片展开核对
     await tester.tap(find.byKey(const Key('knowledge_card_0')));
     await tester.pumpAndSettle();
-
     expect(find.text('大问题交小一号自身 → 至基线直接答'), findsOneWidget);
     expect(find.text('先自己回忆，点一下核对'), findsOneWidget);
 
-    // 再次点击眼睛图标恢复全部显示
-    await tester.tap(find.byKey(const Key('doc_self_test_toggle_btn')));
+    // 4. 点击「退出自测」恢复全部显示
+    await tester.tap(find.byKey(const Key('doc_exit_self_test_btn')));
     await tester.pumpAndSettle();
-
-    expect(find.text('先自己回忆，点一下核对'), findsNothing);
+    expect(find.text('复习'), findsOneWidget);
     expect(find.text('无基线 → 链条永不收敛 → 栈溢出卡死'), findsOneWidget);
+
+    // 5. 选择「AI 苏格拉底抽查」触发回调
+    await tester.tap(find.byKey(const Key('doc_review_menu_btn')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('review_option_ai_socratic')));
+    await tester.pumpAndSettle();
+    expect(aiReviewTapped, 1);
   });
 
-  testWidgets('KNOWLEDGE.md 总索引回退纯 Markdown 渲染，不显示闪卡自测开关', (tester) async {
+  testWidgets('大纲与搜索面板支持按正文关键词过滤并点击跳转，更多菜单收纳导出与复制', (tester) async {
+    var exported = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: KnowledgeDocSheet(
+          title: '编程',
+          subtitle: 'docs/programming.md',
+          markdown: _sampleDocMarkdown,
+          onExportPressed: () => exported++,
+        ),
+      ),
+    );
+
+    // 1. 打开大纲与搜索面板，按正文关键词「栈溢出」筛选
+    await tester.tap(find.byKey(const Key('doc_outline_search_btn')));
+    await tester.pumpAndSettle();
+    expect(find.text('大纲 · 共 2 条'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('doc_outline_search_input')),
+      '栈溢出',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('匹配 1 / 2 条'), findsOneWidget);
+    expect(find.byKey(const Key('outline_item_1')), findsOneWidget);
+    expect(find.byKey(const Key('outline_item_0')), findsNothing);
+
+    // 点击命中项关闭面板并跳转高亮
+    await tester.tap(find.byKey(const Key('outline_item_1')));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    expect(find.byKey(const Key('doc_outline_search_input')), findsNothing);
+
+    // 2. 点击「⋯」更多菜单触发导出 Markdown
+    await tester.tap(find.byKey(const Key('doc_more_menu_btn')));
+    await tester.pumpAndSettle();
+    expect(find.text('导出 Markdown'), findsOneWidget);
+    expect(find.text('复制 Markdown'), findsOneWidget);
+
+    await tester.tap(find.text('导出 Markdown'));
+    await tester.pumpAndSettle();
+    expect(exported, 1);
+  });
+
+  testWidgets('KNOWLEDGE.md 总索引回退纯 Markdown 渲染，不显示大纲搜索和复习胶囊', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: KnowledgeDocSheet(
           title: '知识沉淀总清单',
           subtitle: 'KNOWLEDGE.md',
-          markdown: '# KNOWLEDGE.md\n\n## 编程 (`docs/programming.md`)\n- **递归**：大问题交小一号自身',
+          markdown:
+              '# KNOWLEDGE.md\n\n## 编程 (`docs/programming.md`)\n- **递归**：大问题交小一号自身',
         ),
       ),
     );
 
-    expect(find.byKey(const Key('doc_self_test_toggle_btn')), findsNothing);
+    expect(find.byKey(const Key('doc_outline_search_btn')), findsNothing);
+    expect(find.byKey(const Key('doc_review_menu_btn')), findsNothing);
+    expect(find.byKey(const Key('doc_more_menu_btn')), findsOneWidget);
     expect(find.textContaining('递归'), findsOneWidget);
   });
 }
