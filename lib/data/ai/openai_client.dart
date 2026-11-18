@@ -31,7 +31,17 @@ class OpenAiClient extends BaseAiClient {
       'messages': messages
           .map((m) => {
                 'role': m.role.wireName,
-                'content': m.content,
+                'content': m.images.isEmpty
+                    ? m.content
+                    : [
+                        if (m.content.isNotEmpty)
+                          {'type': 'text', 'text': m.content},
+                        for (final img in m.images)
+                          {
+                            'type': 'image_url',
+                            'image_url': {'url': img.dataUrl},
+                          },
+                      ],
               })
           .toList(),
       'stream': stream,

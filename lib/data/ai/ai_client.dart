@@ -6,18 +6,37 @@ enum AiRole {
   String get wireName => name;
 }
 
+class AiImagePart {
+  final String mimeType;
+  final String base64Data;
+
+  const AiImagePart({
+    required this.mimeType,
+    required this.base64Data,
+  });
+
+  String get dataUrl => 'data:$mimeType;base64,$base64Data';
+}
+
 class AiMessage {
   final AiRole role;
   final String content;
+  final List<AiImagePart> images;
 
-  const AiMessage(this.role, this.content);
+  const AiMessage(this.role, this.content, {this.images = const []});
 
-  const AiMessage.system(this.content) : role = AiRole.system;
-  const AiMessage.user(this.content) : role = AiRole.user;
-  const AiMessage.assistant(this.content) : role = AiRole.assistant;
+  const AiMessage.system(this.content)
+      : role = AiRole.system,
+        images = const [];
+  const AiMessage.user(this.content, {this.images = const []})
+      : role = AiRole.user;
+  const AiMessage.assistant(this.content)
+      : role = AiRole.assistant,
+        images = const [];
 
   @override
-  String toString() => 'AiMessage(${role.name}: ${content.length} chars)';
+  String toString() =>
+      'AiMessage(${role.name}: ${content.length} chars${images.isNotEmpty ? ', ${images.length} images' : ''})';
 }
 
 /// 不同错误给用户的指引完全不同

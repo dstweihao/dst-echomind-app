@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -243,9 +244,13 @@ class _LearnPageState extends ConsumerState<LearnPage> {
             VoiceInputBar(
               controller: _input,
               isGenerating: chatState.isGenerating,
+              isParsingAttachment: chatState.isParsingAttachment,
               voicePhase: chatState.voicePhase,
               recordingAmplitude: chatState.recordingAmplitude,
               recordingDuration: chatState.recordingDuration,
+              pendingAttachments: chatState.pendingAttachments,
+              supportsCamera:
+                  ref.read(attachmentPickerServiceProvider).supportsCamera,
               onSendText: () => _handleSend(controller),
               onCancelGeneration: () => controller.cancelGeneration(),
               onStartRecording: () => controller.startRecording(),
@@ -262,6 +267,10 @@ class _LearnPageState extends ConsumerState<LearnPage> {
               ),
               onCancelRecording: () => controller.cancelRecording(),
               onTextChanged: (_) => setState(() {}),
+              onPickCamera: () => controller.pickCameraPhoto(),
+              onPickGallery: () => controller.pickGalleryImages(),
+              onPickFiles: () => controller.pickFiles(),
+              onRemoveAttachment: controller.removePendingAttachment,
             ),
           ],
         ),
@@ -343,7 +352,9 @@ class _LearnPageState extends ConsumerState<LearnPage> {
 
   void _handleSend(StudyChatController controller) {
     final text = _input.text.trim();
-    if (text.isEmpty) return;
+    final hasAttachments =
+        ref.read(studyChatControllerProvider).pendingAttachments.isNotEmpty;
+    if (text.isEmpty && !hasAttachments) return;
     _input.clear();
     setState(() {});
     unawaited(controller.sendText(text));
@@ -620,6 +631,10 @@ class _LearnPageState extends ConsumerState<LearnPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (msg.attachments.isNotEmpty) ...[
+                    _buildMessageAttachments(msg.attachments, isUser: isUser),
+                    if (cleanContent.isNotEmpty) const SizedBox(height: 10),
+                  ],
                   if (!isUser && thinking != null && thinking.isNotEmpty)
                     _ThinkingCard(
                       thinking: thinking,
@@ -738,6 +753,121 @@ class _LearnPageState extends ConsumerState<LearnPage> {
           ),
           if (isUser) const SizedBox(width: 8),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMessageAttachments(
+    List<StudyAttachment> attachments, {
+    required bool isUser,
+  }) {
+    final images = attachments.where((a) => a.isImage).toList();
+    final files = attachments.where((a) => a.isFile).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (images.isNotEmpty)
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: images.map((img) {
+              final f = File(img.localPath);
+              final exists = img.localPath.isNotEmpty && f.existsSync();
+              return GestureDetector(
+                onTap: exists ? () => _showImagePreview(img.localPath, img.name) : null,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    width: 112,
+                    height: 112,
+                    color: isUser
+                        ? Colors.white.withValues(alpha: 0.16)
+                        : const Color(0xFFF1F5F9),
+                    child: exists
+                        ? Image.file(f, fit: BoxFit.cover)
+                        : Icon(
+                            Icons.image_outlined,
+                            color: isUser ? Colors.white70 : const Color(0xFF94A3B8),
+                          ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        if (images.isNotEmpty && files.isNotEmpty) const SizedBox(height: 8),
+        if (files.isNotEmpty)
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: files.map((file) {
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isUser
+                      ? Colors.white.withValues(alpha: 0.18)
+                      : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isUser
+                        ? Colors.white.withValues(alpha: 0.25)
+                        : const Color(0xFFE2E8F0),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.description_outlined,
+                      size: 15,
+                      color: isUser ? Colors.white : AppColors.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 180),
+                      child: Text(
+                        file.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w500,
+                          color: isUser ? Colors.white : const Color(0xFF1E293B),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+
+  void _showImagePreview(String path, String title) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              child: Center(
+                child: Image.file(File(path), fit: BoxFit.contain),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.white),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

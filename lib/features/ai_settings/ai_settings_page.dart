@@ -39,7 +39,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
 
   String _selectedModel = 'deepseek-flash';
   bool _enableThinking = false;
-  bool _autoPlayTts = true;
+  bool _autoPlayTts = false;
   String _ttsVoiceId = 'stella';
   bool _autoSendAfterAsr = true;
 

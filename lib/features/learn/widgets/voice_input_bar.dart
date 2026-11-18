@@ -1,45 +1,58 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../domain/models/knowledge_models.dart';
 import '../study_chat_controller.dart';
 
-/// 参照豆包 / DeepSeek / 微信打造的语音 + 打字双模式输入栏
+/// 语音 + 打字 + 附件（拍照/相册/文件）输入栏
 ///
-/// - 左侧按钮在「打字模式」与「语音模式」间一键切换；
-/// - 语音模式下居中为宽大「按住说话」胶囊：
-///   * 按下 0ms 即刻开录（不吞开头字）；
-///   * 按住不放持续收音并展示实时声波与计时；
-///   * 上滑超过 56px 平滑切换为红色「松开取消」态；
-///   * 正常松手立即交由 DeepSeek ASR 转文字并发送。
+/// - 默认打字模式，左侧按钮在打字与语音间切换；
+/// - 语音模式下按住说话、松手发送、上滑取消；
+/// - 右侧 `+` 按钮支持拍照、相册选择图片与添加文档文件。
 class VoiceInputBar extends StatefulWidget {
   final TextEditingController controller;
   final bool isGenerating;
+  final bool isParsingAttachment;
   final VoiceInputPhase voicePhase;
   final double recordingAmplitude;
   final Duration recordingDuration;
+  final List<StudyAttachment> pendingAttachments;
+  final bool supportsCamera;
   final VoidCallback onSendText;
   final VoidCallback onCancelGeneration;
   final VoidCallback onStartRecording;
   final VoidCallback onStopRecording;
   final VoidCallback onCancelRecording;
   final ValueChanged<String> onTextChanged;
+  final VoidCallback? onPickCamera;
+  final VoidCallback? onPickGallery;
+  final VoidCallback? onPickFiles;
+  final ValueChanged<String>? onRemoveAttachment;
 
   const VoiceInputBar({
     super.key,
     required this.controller,
     required this.isGenerating,
+    this.isParsingAttachment = false,
     required this.voicePhase,
     required this.recordingAmplitude,
     required this.recordingDuration,
+    this.pendingAttachments = const [],
+    this.supportsCamera = false,
     required this.onSendText,
     required this.onCancelGeneration,
     required this.onStartRecording,
     required this.onStopRecording,
     required this.onCancelRecording,
     required this.onTextChanged,
+    this.onPickCamera,
+    this.onPickGallery,
+    this.onPickFiles,
+    this.onRemoveAttachment,
   });
 
   @override
@@ -144,6 +157,7 @@ class _VoiceInputBarState extends State<VoiceInputBar> {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (isRecording) _buildRecordingOverlayBanner(),
+        if (widget.pendingAttachments.isNotEmpty) _buildAttachmentPreviewStrip(),
         Container(
           margin: const EdgeInsets.fromLTRB(16, 6, 16, 16),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -321,17 +335,22 @@ class _VoiceInputBarState extends State<VoiceInputBar> {
         if (widget.isGenerating) ...[
           const SizedBox(width: 8),
           _stopGenerationButton(),
+        ] else if (_hasAttachmentActions) ...[
+          const SizedBox(width: 6),
+          _attachmentButton(disabled: isRecording || widget.isParsingAttachment),
         ],
       ],
     );
   }
 
   // ------------------------------------------------------------------
-  // 打字模式：左侧切语音 + 中间输入框 + 右侧发送/停止
+  // 打字模式：左侧切语音 + 中间输入框 + 右侧添加附件/发送/停止
   // ------------------------------------------------------------------
 
   Widget _buildTextModeRow() {
-    final hasText = widget.controller.text.trim().isNotEmpty;
+    final canSend = !widget.isParsingAttachment &&
+        (widget.controller.text.trim().isNotEmpty ||
+            widget.pendingAttachments.isNotEmpty);
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -339,14 +358,14 @@ class _VoiceInputBarState extends State<VoiceInputBar> {
         _modeToggleButton(
           icon: Icons.mic_none_rounded,
           tooltip: '切换为按住说话（语音模式）',
-          disabled: widget.isGenerating,
+          disabled: widget.isGenerating || widget.isParsingAttachment,
         ),
         const SizedBox(width: 8),
         Expanded(
           child: TextField(
             controller: widget.controller,
             focusNode: _focusNode,
-            enabled: !widget.isGenerating,
+            enabled: !widget.isGenerating && !widget.isParsingAttachment,
             style: const TextStyle(fontSize: 15.5, height: 1.45),
             minLines: 1,
             maxLines: 5,
@@ -359,34 +378,324 @@ class _VoiceInputBarState extends State<VoiceInputBar> {
               isDense: true,
               contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 10),
             ),
-            onSubmitted: (_) => widget.onSendText(),
+            onSubmitted: (_) {
+              if (canSend) widget.onSendText();
+            },
             onChanged: widget.onTextChanged,
           ),
         ),
-        const SizedBox(width: 8),
+        if (_hasAttachmentActions && !widget.isGenerating) ...[
+          const SizedBox(width: 4),
+          _attachmentButton(disabled: widget.isParsingAttachment),
+        ],
+        const SizedBox(width: 6),
         if (widget.isGenerating)
           _stopGenerationButton()
         else
           InkWell(
-            onTap: hasText ? widget.onSendText : null,
+            key: const Key('send_message_btn'),
+            onTap: canSend ? widget.onSendText : null,
             borderRadius: BorderRadius.circular(20),
             child: Container(
               width: 40,
               height: 40,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: hasText ? AppColors.primary : const Color(0xFFE2E8F0),
+                color: canSend ? AppColors.primary : const Color(0xFFE2E8F0),
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                Icons.arrow_upward_rounded,
-                size: 20,
-                color: hasText ? Colors.white : const Color(0xFF94A3B8),
-              ),
+              child: widget.isParsingAttachment
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFF64748B),
+                      ),
+                    )
+                  : Icon(
+                      Icons.arrow_upward_rounded,
+                      size: 20,
+                      color: canSend ? Colors.white : const Color(0xFF94A3B8),
+                    ),
             ),
           ),
       ],
     );
+  }
+
+  bool get _hasAttachmentActions =>
+      widget.onPickCamera != null ||
+      widget.onPickGallery != null ||
+      widget.onPickFiles != null;
+
+  Widget _attachmentButton({required bool disabled}) {
+    return Tooltip(
+      message: '添加图片或文件',
+      child: InkWell(
+        key: const Key('add_attachment_btn'),
+        onTap: disabled ? null : _showAttachmentPickerSheet,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          width: 38,
+          height: 38,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: disabled ? const Color(0xFFF8FAFC) : const Color(0xFFF1F5F9),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.add_rounded,
+            size: 22,
+            color: disabled ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAttachmentPickerSheet() {
+    _focusNode.unfocus();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFCBD5E1),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    if (widget.supportsCamera && widget.onPickCamera != null) ...[
+                      Expanded(
+                        child: _pickerActionTile(
+                          key: const Key('pick_camera_btn'),
+                          icon: Icons.photo_camera_outlined,
+                          label: '拍照',
+                          onTap: () {
+                            Navigator.of(sheetCtx).pop();
+                            widget.onPickCamera!();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    if (widget.onPickGallery != null) ...[
+                      Expanded(
+                        child: _pickerActionTile(
+                          key: const Key('pick_gallery_btn'),
+                          icon: Icons.photo_library_outlined,
+                          label: '相册',
+                          onTap: () {
+                            Navigator.of(sheetCtx).pop();
+                            widget.onPickGallery!();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    if (widget.onPickFiles != null)
+                      Expanded(
+                        child: _pickerActionTile(
+                          key: const Key('pick_files_btn'),
+                          icon: Icons.insert_drive_file_outlined,
+                          label: '文件',
+                          onTap: () {
+                            Navigator.of(sheetCtx).pop();
+                            widget.onPickFiles!();
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _pickerActionTile({
+    Key? key,
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      key: key,
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 26, color: const Color(0xFF1E293B)),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1E293B),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAttachmentPreviewStrip() {
+    return Container(
+      height: 76,
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: widget.pendingAttachments.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final att = widget.pendingAttachments[index];
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              if (att.isImage)
+                Container(
+                  width: 68,
+                  height: 68,
+                  margin: const EdgeInsets.only(top: 6),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    color: const Color(0xFFF1F5F9),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: _buildThumbnailImage(att.localPath),
+                )
+              else
+                Container(
+                  width: 170,
+                  height: 68,
+                  margin: const EdgeInsets.only(top: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          Icons.description_outlined,
+                          size: 18,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              att.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF1E293B),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _formatSize(att.sizeBytes),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF94A3B8),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (widget.onRemoveAttachment != null &&
+                  !widget.isParsingAttachment)
+                Positioned(
+                  right: -4,
+                  top: 0,
+                  child: GestureDetector(
+                    onTap: () => widget.onRemoveAttachment!(att.id),
+                    child: Container(
+                      width: 20,
+                      height: 20,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF334155),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.close_rounded,
+                        size: 13,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildThumbnailImage(String path) {
+    final file = File(path);
+    if (path.isNotEmpty && file.existsSync()) {
+      return Image.file(file, fit: BoxFit.cover);
+    }
+    return const Center(
+      child: Icon(Icons.image_outlined, size: 24, color: Color(0xFF94A3B8)),
+    );
+  }
+
+  static String _formatSize(int bytes) {
+    if (bytes <= 0) return '文件';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   Widget _modeToggleButton({

@@ -1,5 +1,75 @@
 import '../ai_enums_bridge.dart';
 
+enum StudyAttachmentKind { image, file }
+
+/// 用户消息附带的图片或文档附件
+class StudyAttachment {
+  final String id;
+  final StudyAttachmentKind kind;
+  final String name;
+  final String localPath;
+  final String mimeType;
+  final int sizeBytes;
+
+  /// 文档类附件（纯文本直接读取，或 PDF/Word/PPT 经 DeepSeek OCR 提取）的纯文本内容
+  final String? extractedText;
+
+  const StudyAttachment({
+    required this.id,
+    required this.kind,
+    required this.name,
+    required this.localPath,
+    required this.mimeType,
+    this.sizeBytes = 0,
+    this.extractedText,
+  });
+
+  bool get isImage => kind == StudyAttachmentKind.image;
+  bool get isFile => kind == StudyAttachmentKind.file;
+
+  StudyAttachment copyWith({
+    String? extractedText,
+  }) {
+    return StudyAttachment(
+      id: id,
+      kind: kind,
+      name: name,
+      localPath: localPath,
+      mimeType: mimeType,
+      sizeBytes: sizeBytes,
+      extractedText: extractedText ?? this.extractedText,
+    );
+  }
+
+  factory StudyAttachment.fromJson(Map<String, dynamic> json) {
+    final kindStr = (json['kind'] ?? 'file').toString();
+    return StudyAttachment(
+      id: (json['id'] ?? '').toString(),
+      kind: kindStr == 'image'
+          ? StudyAttachmentKind.image
+          : StudyAttachmentKind.file,
+      name: (json['name'] ?? '').toString(),
+      localPath: (json['local_path'] ?? '').toString(),
+      mimeType: (json['mime_type'] ?? 'application/octet-stream').toString(),
+      sizeBytes: (json['size_bytes'] is num)
+          ? (json['size_bytes'] as num).toInt()
+          : 0,
+      extractedText: json['extracted_text']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'kind': kind.name,
+        'name': name,
+        'local_path': localPath,
+        'mime_type': mimeType,
+        'size_bytes': sizeBytes,
+        if (extractedText != null && extractedText!.isNotEmpty)
+          'extracted_text': extractedText,
+      };
+}
+
 /// 单条学习对话消息
 class StudyMessage {
   final String id;
@@ -10,12 +80,16 @@ class StudyMessage {
   /// 是否为“已沉淀压缩”系统视觉分隔卡（不作为普通对话发给大模型）
   final bool isCompactionNotice;
 
+  /// 附带的图片或文档列表
+  final List<StudyAttachment> attachments;
+
   const StudyMessage({
     required this.id,
     required this.role,
     required this.content,
     required this.createdAt,
     this.isCompactionNotice = false,
+    this.attachments = const [],
   });
 
   factory StudyMessage.fromJson(Map<String, dynamic> json) {
@@ -25,6 +99,7 @@ class StudyMessage {
       'system' => StudyMessageRole.system,
       _ => StudyMessageRole.user,
     };
+    final rawAttachments = json['attachments'] as List<dynamic>? ?? const [];
     return StudyMessage(
       id: (json['id'] ?? '').toString(),
       role: role,
@@ -32,6 +107,10 @@ class StudyMessage {
       createdAt: DateTime.tryParse((json['created_at'] ?? '').toString()) ??
           DateTime.now(),
       isCompactionNotice: json['is_compaction_notice'] == true,
+      attachments: rawAttachments
+          .whereType<Map>()
+          .map((e) => StudyAttachment.fromJson(e.cast<String, dynamic>()))
+          .toList(),
     );
   }
 
@@ -41,6 +120,8 @@ class StudyMessage {
         'content': content,
         'created_at': createdAt.toIso8601String(),
         if (isCompactionNotice) 'is_compaction_notice': true,
+        if (attachments.isNotEmpty)
+          'attachments': attachments.map((a) => a.toJson()).toList(),
       };
 }
 

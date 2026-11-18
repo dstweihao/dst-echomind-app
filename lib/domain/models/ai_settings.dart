@@ -31,7 +31,7 @@ class AiSettings {
   /// 人设预设标识
   final String persona;
 
-  /// 是否像豆包一样自动流式朗读 AI 解答
+  /// 是否自动流式朗读 AI 解答（默认关闭，按需开启以节省语音费用）
   final bool autoPlayTts;
 
   /// DeepSeek TTS 音色：`stella`（海星女声）或 `tide`（暗潮男声）
@@ -51,7 +51,7 @@ class AiSettings {
     this.enableThinking = false,
     this.timeoutSeconds = 120,
     this.persona = 'study_mode_socratic',
-    this.autoPlayTts = true,
+    this.autoPlayTts = false,
     this.ttsVoiceId = 'stella',
     this.autoSendAfterAsr = true,
   });
@@ -126,6 +126,9 @@ class AiSettings {
 
   /// DeepSeek ASR 语音转文字端点
   String get asrEndpoint => '$normalizedBaseUrl/v1/tools/asr';
+
+  /// DeepSeek OCR 文档/图片文字解析端点
+  String get ocrEndpoint => '$normalizedBaseUrl/v1/tools/ocr';
 
   /// DeepSeek TTS 整段合成 HTTP 端点
   String get ttsHttpEndpoint => '$normalizedBaseUrl/v1/tools/tts';

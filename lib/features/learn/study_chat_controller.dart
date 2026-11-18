@@ -1,12 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/ai/ai_client.dart';
 import '../../data/ai/context_compactor.dart';
+import '../../data/ai/deepseek_ocr_client.dart';
 import '../../data/ai/prompts/study_mode_prompt.dart';
 import '../../data/ai/sensitive_content_guard.dart';
+import '../../data/attachments/attachment_picker_service.dart';
 import '../../data/voice/deepseek_asr_client.dart';
 import '../../data/voice/deepseek_tts_client.dart';
 import '../../data/voice/wav_encoder.dart';
@@ -46,6 +50,8 @@ class StudyChatState {
   final Duration recordingDuration;
   final TtsPlaybackPhase ttsPhase;
   final String? playingMessageId;
+  final List<StudyAttachment> pendingAttachments;
+  final bool isParsingAttachment;
   final String? errorMessage;
   final String? statusBanner;
   final bool hydrated;
@@ -68,6 +74,8 @@ class StudyChatState {
     this.recordingDuration = Duration.zero,
     this.ttsPhase = TtsPlaybackPhase.idle,
     this.playingMessageId,
+    this.pendingAttachments = const [],
+    this.isParsingAttachment = false,
     this.errorMessage,
     this.statusBanner,
     this.hydrated = false,
@@ -106,6 +114,8 @@ class StudyChatState {
     TtsPlaybackPhase? ttsPhase,
     String? playingMessageId,
     bool clearPlayingMessageId = false,
+    List<StudyAttachment>? pendingAttachments,
+    bool? isParsingAttachment,
     String? errorMessage,
     bool clearError = false,
     String? statusBanner,
@@ -136,6 +146,8 @@ class StudyChatState {
       playingMessageId: clearPlayingMessageId
           ? null
           : (playingMessageId ?? this.playingMessageId),
+      pendingAttachments: pendingAttachments ?? this.pendingAttachments,
+      isParsingAttachment: isParsingAttachment ?? this.isParsingAttachment,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       statusBanner:
           clearStatusBanner ? null : (statusBanner ?? this.statusBanner),
@@ -395,48 +407,205 @@ class StudyChatController extends Notifier<StudyChatState> {
   }
 
   // ------------------------------------------------------------------
-  // 对话发送 + 流式 TTS 实时联动 + 达上限自动沉淀压缩
+  // 附件采集（拍照 / 相册选择 / 添加文件）
+  // ------------------------------------------------------------------
+
+  static const int maxPendingAttachments = 6;
+
+  Future<void> pickCameraPhoto() async {
+    if (state.isGenerating || state.isParsingAttachment) return;
+    try {
+      final item = await ref.read(attachmentPickerServiceProvider).pickFromCamera();
+      if (!ref.mounted || item == null) return;
+      _appendPendingAttachments([item]);
+    } catch (e) {
+      if (!ref.mounted) return;
+      state = state.copyWith(
+        errorMessage: e is StateError ? e.message : '无法打开相机：$e',
+      );
+    }
+  }
+
+  Future<void> pickGalleryImages() async {
+    if (state.isGenerating || state.isParsingAttachment) return;
+    try {
+      final items =
+          await ref.read(attachmentPickerServiceProvider).pickFromGallery();
+      if (!ref.mounted || items.isEmpty) return;
+      _appendPendingAttachments(items);
+    } catch (e) {
+      if (!ref.mounted) return;
+      state = state.copyWith(
+        errorMessage: e is StateError ? e.message : '无法选择相册图片：$e',
+      );
+    }
+  }
+
+  Future<void> pickFiles() async {
+    if (state.isGenerating || state.isParsingAttachment) return;
+    try {
+      final items = await ref.read(attachmentPickerServiceProvider).pickFiles();
+      if (!ref.mounted || items.isEmpty) return;
+      _appendPendingAttachments(items);
+    } catch (e) {
+      if (!ref.mounted) return;
+      state = state.copyWith(
+        errorMessage: e is StateError ? e.message : '无法添加文件：$e',
+      );
+    }
+  }
+
+  void _appendPendingAttachments(List<StudyAttachment> additions) {
+    final merged = [...state.pendingAttachments, ...additions];
+    if (merged.length > maxPendingAttachments) {
+      state = state.copyWith(
+        pendingAttachments: merged.sublist(0, maxPendingAttachments),
+        errorMessage: '单条消息最多附加 $maxPendingAttachments 个图片或文件',
+      );
+      return;
+    }
+    state = state.copyWith(pendingAttachments: merged, clearError: true);
+  }
+
+  void removePendingAttachment(String id) {
+    state = state.copyWith(
+      pendingAttachments:
+          state.pendingAttachments.where((a) => a.id != id).toList(),
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // 对话发送 + 多模态附件 + 流式 TTS 实时联动 + 达上限自动沉淀压缩
   // ------------------------------------------------------------------
 
   Future<void> sendText(String rawText) async {
-    final text = rawText.trim();
-    if (text.isEmpty || state.isGenerating) return;
+    final trimmed = rawText.trim();
+    final pending = state.pendingAttachments;
+    if ((trimmed.isEmpty && pending.isEmpty) ||
+        state.isGenerating ||
+        state.isParsingAttachment) {
+      return;
+    }
 
     // 每次新发问立刻打断上一轮语音播报
     await stopPlayback();
 
+    final hasImages = pending.any((a) => a.isImage);
+    final hasFiles = pending.any((a) => a.isFile);
+    final text = trimmed.isNotEmpty
+        ? trimmed
+        : (hasFiles
+            ? '请帮我梳理这份文件，用苏格拉底方式带我搞懂核心内容。'
+            : (hasImages ? '请看看这些图片，用大白话带我理解里面的重点。' : ''));
+
     final convRepo = ref.read(conversationRepositoryProvider);
-    final userMsg = StudyMessage(
-      id: convRepo.nextMessageId(),
-      role: StudyMessageRole.user,
-      content: text,
-      createdAt: DateTime.now(),
-    );
 
     if (SensitiveContentGuard.isSensitive(text)) {
+      final userMsg = StudyMessage(
+        id: convRepo.nextMessageId(),
+        role: StudyMessageRole.user,
+        content: text,
+        createdAt: DateTime.now(),
+        attachments: pending,
+      );
       final warnMsg = StudyMessage(
         id: convRepo.nextMessageId(),
         role: StudyMessageRole.assistant,
         content: SensitiveContentGuard.friendlyWarningMessage(),
         createdAt: DateTime.now(),
       );
+      state = state.copyWith(pendingAttachments: const []);
       await _appendMessages([userMsg, warnMsg]);
       return;
     }
 
-    await _appendMessages([userMsg]);
-
     final client = ref.read(aiClientProvider);
     if (client == null) {
+      final userMsg = StudyMessage(
+        id: convRepo.nextMessageId(),
+        role: StudyMessageRole.user,
+        content: text,
+        createdAt: DateTime.now(),
+        attachments: pending,
+      );
       final hintMsg = StudyMessage(
         id: convRepo.nextMessageId(),
         role: StudyMessageRole.assistant,
         content: '尚未配置 DeepSeek API Key，请先点击下方按钮前往设置页填写密钥。',
         createdAt: DateTime.now(),
       );
-      await _appendMessages([hintMsg]);
+      state = state.copyWith(pendingAttachments: const []);
+      await _appendMessages([userMsg, hintMsg]);
       return;
     }
+
+    // 解析 PDF/Word/PPT 等需要 DeepSeek OCR 提取文字的文档
+    List<StudyAttachment> resolvedAttachments = pending;
+    if (pending.any(NativeAttachmentPickerService.needsOcr)) {
+      final ocrClient = ref.read(deepSeekOcrClientProvider);
+      if (ocrClient == null) {
+        state = state.copyWith(
+          errorMessage: '请先在设置中配置 DeepSeek API Key 以解析文档',
+        );
+        return;
+      }
+
+      state = state.copyWith(
+        isParsingAttachment: true,
+        clearError: true,
+        statusBanner: '正在解析文档内容…',
+      );
+      try {
+        final nextList = <StudyAttachment>[];
+        for (final item in pending) {
+          if (!NativeAttachmentPickerService.needsOcr(item)) {
+            nextList.add(item);
+            continue;
+          }
+          if (!ref.mounted) return;
+          state = state.copyWith(statusBanner: '正在解析文档：${item.name}…');
+          final bytes = await File(item.localPath).readAsBytes();
+          final parsed = await ocrClient.parseDocument(
+            bytes,
+            filename: item.name,
+          );
+          nextList.add(item.copyWith(extractedText: parsed.text));
+        }
+        resolvedAttachments = nextList;
+      } on OcrException catch (e) {
+        if (!ref.mounted) return;
+        state = state.copyWith(
+          isParsingAttachment: false,
+          clearStatusBanner: true,
+          errorMessage: e.message,
+        );
+        return;
+      } catch (e) {
+        if (!ref.mounted) return;
+        state = state.copyWith(
+          isParsingAttachment: false,
+          clearStatusBanner: true,
+          errorMessage: '解析文档失败：$e',
+        );
+        return;
+      }
+      if (!ref.mounted) return;
+      state = state.copyWith(
+        isParsingAttachment: false,
+        clearStatusBanner: true,
+      );
+    }
+
+    final userMsg = StudyMessage(
+      id: convRepo.nextMessageId(),
+      role: StudyMessageRole.user,
+      content: text,
+      createdAt: DateTime.now(),
+      attachments: resolvedAttachments,
+    );
+
+    state = state.copyWith(pendingAttachments: const []);
+    await _appendMessages([userMsg]);
 
     state = state.copyWith(
       isGenerating: true,
@@ -484,18 +653,10 @@ class StudyChatController extends Notifier<StudyChatState> {
       focusedDocContent: state.focusedDocContent,
     );
 
-    final wireMessages = <AiMessage>[
-      AiMessage.system(sysPrompt),
-      for (final m in state.conversationalMessages)
-        AiMessage(
-          switch (m.role) {
-            StudyMessageRole.user => AiRole.user,
-            StudyMessageRole.assistant => AiRole.assistant,
-            StudyMessageRole.system => AiRole.system,
-          },
-          m.content,
-        ),
-    ];
+    final wireMessages = await _buildWireMessages(
+      sysPrompt,
+      state.conversationalMessages,
+    );
 
     try {
       _llmSub = client.streamChat(wireMessages).listen(
@@ -617,6 +778,70 @@ class StudyChatController extends Notifier<StudyChatState> {
       );
       await _appendMessages([errBubble]);
     }
+  }
+
+  Future<List<AiMessage>> _buildWireMessages(
+    String sysPrompt,
+    List<StudyMessage> messages,
+  ) async {
+    // 仅对最近携带图片的消息加载 base64（最多保留最近 4 张图），避免长对话上下文爆体积
+    final imageMessageIndices = <int>{};
+    var remainingImageSlots = 4;
+    for (var i = messages.length - 1; i >= 0 && remainingImageSlots > 0; i--) {
+      final imgs = messages[i].attachments.where((a) => a.isImage).length;
+      if (imgs > 0) {
+        imageMessageIndices.add(i);
+        remainingImageSlots -= imgs;
+      }
+    }
+
+    final wire = <AiMessage>[AiMessage.system(sysPrompt)];
+    for (var i = 0; i < messages.length; i++) {
+      final m = messages[i];
+      final role = switch (m.role) {
+        StudyMessageRole.user => AiRole.user,
+        StudyMessageRole.assistant => AiRole.assistant,
+        StudyMessageRole.system => AiRole.system,
+      };
+
+      final textBuf = StringBuffer(m.content);
+      final imageParts = <AiImagePart>[];
+
+      for (final att in m.attachments) {
+        if (att.isFile) {
+          final body = att.extractedText?.trim() ?? '';
+          if (body.isNotEmpty) {
+            textBuf
+              ..writeln()
+              ..writeln()
+              ..writeln('【附件文件：${att.name}】')
+              ..writeln(body);
+          } else {
+            textBuf
+              ..writeln()
+              ..writeln('【附件文件：${att.name}（未提取到文字）】');
+          }
+        } else if (att.isImage && imageMessageIndices.contains(i)) {
+          try {
+            final file = File(att.localPath);
+            if (file.existsSync()) {
+              final bytes = await file.readAsBytes();
+              imageParts.add(
+                AiImagePart(
+                  mimeType: att.mimeType,
+                  base64Data: base64Encode(bytes),
+                ),
+              );
+            }
+          } catch (e) {
+            debugPrint('Load image attachment failed (${att.name}): $e');
+          }
+        }
+      }
+
+      wire.add(AiMessage(role, textBuf.toString().trim(), images: imageParts));
+    }
+    return wire;
   }
 
   Future<void> _openStreamingTts({

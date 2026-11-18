@@ -6,7 +6,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'data/ai/ai_client.dart';
 import 'data/ai/anthropic_client.dart';
 import 'data/ai/context_compactor.dart';
+import 'data/ai/deepseek_ocr_client.dart';
 import 'data/ai/openai_client.dart';
+import 'data/attachments/attachment_picker_service.dart';
 import 'data/credentials/credentials_store.dart';
 import 'data/repositories/config_repository.dart';
 import 'data/repositories/conversation_repository.dart';
@@ -144,6 +146,24 @@ final deepSeekAsrClientProvider = Provider<DeepSeekAsrClient?>((ref) {
   );
   ref.onDispose(client.dispose);
   return client;
+});
+
+final deepSeekOcrClientProvider = Provider<DeepSeekOcrClient?>((ref) {
+  final settings = ref.watch(aiSettingsProvider);
+  final apiKey = ref.watch(aiApiKeyProvider).value;
+  if (apiKey == null || apiKey.trim().isEmpty) return null;
+
+  final client = DeepSeekOcrClient(
+    endpoint: settings.ocrEndpoint,
+    apiKey: apiKey.trim(),
+  );
+  ref.onDispose(client.dispose);
+  return client;
+});
+
+final attachmentPickerServiceProvider =
+    Provider<AttachmentPickerService>((ref) {
+  return NativeAttachmentPickerService();
 });
 
 final deepSeekTtsClientProvider = Provider<DeepSeekTtsClient?>((ref) {
