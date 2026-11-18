@@ -1,7 +1,7 @@
 name: echomind_app
 description: 回响 (EchoMind) - 基于 DeepSeek 对话与语音能力的苏格拉底式学习应用
 publish_to: 'none'
-version: 1.0.3+4
+version: 1.0.4+5
 
 environment:
   sdk: ^3.13.0
