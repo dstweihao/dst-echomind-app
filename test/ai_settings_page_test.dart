@@ -147,6 +147,7 @@ void main() {
     expect(find.text('修复若干边界问题'), findsOneWidget);
     expect(find.text('立即更新'), findsOneWidget);
     expect(find.text('稍后再说'), findsOneWidget);
+    expect(find.text('或前往发布页手动下载'), findsOneWidget);
   });
 
   testWidgets('更新弹窗以 Markdown 渲染说明（无 ### / ** 源码）并在应用内展示下载进度条', (tester) async {

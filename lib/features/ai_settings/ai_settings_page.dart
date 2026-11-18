@@ -1512,7 +1512,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                         ),
                       ],
 
-                      // 下载失败提示 + 仅失败时提供的直链兜底
+                      // 下载失败提示
                       if (errorMsg != null) ...[
                         const SizedBox(height: 12),
                         Container(
@@ -1528,38 +1528,18 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                               color: const Color(0xFFFECACA),
                             ),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                errorMsg!,
-                                style: const TextStyle(
-                                  fontSize: 12.2,
-                                  color: Color(0xFFDC2626),
-                                  height: 1.4,
-                                ),
-                              ),
-                              if (fallbackUrl.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                InkWell(
-                                  onTap: () => _openUrl(fallbackUrl),
-                                  child: Text(
-                                    '网络较慢？点此通过浏览器直接下载安装包',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.primary,
-                                      decoration: TextDecoration.underline,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
+                          child: Text(
+                            errorMsg!,
+                            style: const TextStyle(
+                              fontSize: 12.2,
+                              color: Color(0xFFDC2626),
+                              height: 1.4,
+                            ),
                           ),
                         ),
                       ],
 
-                      // 底部操作区
+                      // 底部操作区：主按钮应用内直下，下方常驻轻量「前往发布页手动下载」入口
                       const SizedBox(height: 18),
                       if (downloading)
                         SizedBox(
@@ -1584,7 +1564,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                             ),
                           ),
                         )
-                      else
+                      else ...[
                         Row(
                           children: [
                             Expanded(
@@ -1639,6 +1619,34 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                             ),
                           ],
                         ),
+                        if (release.htmlUrl.isNotEmpty ||
+                            fallbackUrl.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Center(
+                            child: InkWell(
+                              onTap: () => _openUrl(
+                                release.htmlUrl.isNotEmpty
+                                    ? release.htmlUrl
+                                    : fallbackUrl,
+                              ),
+                              borderRadius: BorderRadius.circular(6),
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                child: Text(
+                                  '或前往发布页手动下载',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF94A3B8),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ],
                   ),
                 ),
