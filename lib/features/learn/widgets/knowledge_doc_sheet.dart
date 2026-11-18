@@ -5,12 +5,13 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/app_toast.dart';
 
-/// 知识沉淀 Markdown 阅读弹窗（支持阅读 `KNOWLEDGE.md` 或任意 `docs/<slug>.md`，并一键发起复习）
+/// 知识库 Markdown 阅读弹窗（支持阅读、导出或发起复习）
 class KnowledgeDocSheet extends StatelessWidget {
   final String title;
   final String subtitle;
   final String markdown;
   final VoidCallback? onReviewPressed;
+  final VoidCallback? onExportPressed;
 
   const KnowledgeDocSheet({
     super.key,
@@ -18,6 +19,7 @@ class KnowledgeDocSheet extends StatelessWidget {
     required this.subtitle,
     required this.markdown,
     this.onReviewPressed,
+    this.onExportPressed,
   });
 
   static Future<void> show(
@@ -26,6 +28,7 @@ class KnowledgeDocSheet extends StatelessWidget {
     required String subtitle,
     required String markdown,
     VoidCallback? onReviewPressed,
+    VoidCallback? onExportPressed,
   }) {
     return showModalBottomSheet<void>(
       context: context,
@@ -36,6 +39,7 @@ class KnowledgeDocSheet extends StatelessWidget {
         subtitle: subtitle,
         markdown: markdown,
         onReviewPressed: onReviewPressed,
+        onExportPressed: onExportPressed,
       ),
     );
   }
@@ -91,6 +95,17 @@ class KnowledgeDocSheet extends StatelessWidget {
                       ],
                     ),
                   ),
+                  if (onExportPressed != null && markdown.trim().isNotEmpty)
+                    IconButton(
+                      key: const Key('doc_export_md_btn'),
+                      tooltip: '导出 Markdown',
+                      icon: const Icon(
+                        Icons.ios_share_rounded,
+                        size: 19,
+                        color: Color(0xFF64748B),
+                      ),
+                      onPressed: onExportPressed,
+                    ),
                   IconButton(
                     tooltip: '复制 Markdown',
                     icon: const Icon(

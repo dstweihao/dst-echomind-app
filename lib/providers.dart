@@ -10,6 +10,7 @@ import 'data/ai/openai_client.dart';
 import 'data/credentials/credentials_store.dart';
 import 'data/repositories/config_repository.dart';
 import 'data/repositories/conversation_repository.dart';
+import 'data/repositories/knowledge_exporter.dart';
 import 'data/repositories/knowledge_repository.dart';
 import 'data/settings/app_settings_store.dart';
 import 'data/storage/file_store.dart';
@@ -118,6 +119,10 @@ final aiAvailableProvider = Provider<bool>((ref) {
 
 final knowledgeRepositoryProvider = Provider<KnowledgeRepository>((ref) {
   return KnowledgeRepository(ref.watch(fileStoreProvider));
+});
+
+final knowledgeExporterProvider = Provider<KnowledgeExporter>((ref) {
+  return const KnowledgeExporter();
 });
 
 final conversationRepositoryProvider = Provider<ConversationRepository>((ref) {

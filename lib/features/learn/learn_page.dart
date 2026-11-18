@@ -11,6 +11,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../data/ai/prompts/study_mode_prompt.dart';
 import '../../data/ai/provider_presets.dart';
+import '../../data/repositories/knowledge_exporter.dart';
 import '../../domain/ai_enums_bridge.dart';
 import '../../domain/models/knowledge_models.dart';
 import '../../domain/models/update_status.dart';
@@ -78,6 +79,11 @@ class _LearnPageState extends ConsumerState<LearnPage> {
             title: '知识沉淀总清单',
             subtitle: 'KNOWLEDGE.md',
             markdown: chatState.knowledgeIndex,
+            onExportPressed: () => _exportSingleDoc(
+              context,
+              fileName: 'KNOWLEDGE.md',
+              markdown: chatState.knowledgeIndex,
+            ),
           );
         },
         onOpenDoc: (doc) async {
@@ -90,11 +96,20 @@ class _LearnPageState extends ConsumerState<LearnPage> {
             subtitle: 'docs/${doc.slug}.md',
             markdown: md,
             onReviewPressed: () => controller.startReviewFromDoc(doc),
+            onExportPressed: () => _exportSingleDoc(
+              context,
+              fileName: '${doc.slug}.md',
+              markdown: md,
+            ),
           );
         },
         onCompactNow: () {
           Navigator.of(context).pop();
           _triggerManualCompaction(context, controller);
+        },
+        onExportAll: () {
+          Navigator.of(context).pop();
+          _exportKnowledgeBase(context);
         },
       ),
       appBar: AppBar(
@@ -153,7 +168,7 @@ class _LearnPageState extends ConsumerState<LearnPage> {
                     ),
                   )
                 : Icon(
-                    Icons.bookmark_add_outlined,
+                    Icons.auto_awesome_rounded,
                     size: 20,
                     color: canCompact
                         ? const Color(0xFF1E293B)
@@ -265,6 +280,65 @@ class _LearnPageState extends ConsumerState<LearnPage> {
       title: '知识已沉淀',
       detail: '已更新 KNOWLEDGE.md 与 docs/ 并压缩上下文',
     );
+  }
+
+  Rect? _shareOriginFor(BuildContext context) {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  Future<void> _exportKnowledgeBase(BuildContext context) async {
+    final exporter = ref.read(knowledgeExporterProvider);
+    final repo = ref.read(knowledgeRepositoryProvider);
+    final result = await exporter.exportAll(
+      repo,
+      shareOrigin: _shareOriginFor(context),
+    );
+    if (!context.mounted) return;
+    _showExportToast(context, result);
+  }
+
+  Future<void> _exportSingleDoc(
+    BuildContext context, {
+    required String fileName,
+    required String markdown,
+  }) async {
+    final exporter = ref.read(knowledgeExporterProvider);
+    final result = await exporter.exportMarkdown(
+      fileName: fileName,
+      markdown: markdown,
+      shareOrigin: _shareOriginFor(context),
+    );
+    if (!context.mounted) return;
+    _showExportToast(context, result);
+  }
+
+  void _showExportToast(BuildContext context, KnowledgeExportResult result) {
+    switch (result.outcome) {
+      case KnowledgeExportOutcome.saved:
+        AppToast.showSuccess(
+          context,
+          title: '导出成功',
+          detail: result.filePath != null
+              ? '已保存 ${result.fileCount} 个文件至 ${result.filePath}'
+              : '已保存 ${result.fileCount} 个文件',
+        );
+      case KnowledgeExportOutcome.shared:
+        AppToast.showSuccess(
+          context,
+          title: '已导出知识库',
+          detail: '共 ${result.fileCount} 个文件',
+        );
+      case KnowledgeExportOutcome.empty:
+      case KnowledgeExportOutcome.failed:
+        AppToast.showInfo(
+          context,
+          title: result.message.isNotEmpty ? result.message : '导出失败',
+        );
+      case KnowledgeExportOutcome.cancelled:
+        break;
+    }
   }
 
   void _handleSend(StudyChatController controller) {
@@ -434,7 +508,7 @@ class _LearnPageState extends ConsumerState<LearnPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                Icons.bookmark_added_outlined,
+                Icons.auto_awesome_rounded,
                 size: 13.5,
                 color: AppColors.primary,
               ),

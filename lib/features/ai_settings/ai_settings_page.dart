@@ -1292,7 +1292,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
-                height: 40,
+                height: 44,
                 child: ElevatedButton(
                   onPressed: () => Navigator.of(ctx).pop(),
                   style: ElevatedButton.styleFrom(
@@ -1300,6 +1300,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                         ? const Color(0xFFEF4444)
                         : AppColors.primary,
                     foregroundColor: Colors.white,
+                    padding: EdgeInsets.zero,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),

@@ -5,12 +5,13 @@ import '../../../domain/models/knowledge_models.dart';
 import '../../../shared/widgets/app_logo.dart';
 import '../study_chat_controller.dart';
 
-/// 左侧抽屉：Claude 式个人知识沉淀库（`KNOWLEDGE.md` 总清单 + `docs/<专题>.md` 分类沉淀）
+/// 左侧抽屉：个人知识库（`KNOWLEDGE.md` 总清单 + `docs/<专题>.md` 分类笔记）
 class KnowledgeDrawer extends StatelessWidget {
   final StudyChatState chatState;
   final VoidCallback onOpenIndex;
   final ValueChanged<KnowledgeDocSummary> onOpenDoc;
   final VoidCallback onCompactNow;
+  final VoidCallback? onExportAll;
 
   const KnowledgeDrawer({
     super.key,
@@ -18,6 +19,7 @@ class KnowledgeDrawer extends StatelessWidget {
     required this.onOpenIndex,
     required this.onOpenDoc,
     required this.onCompactNow,
+    this.onExportAll,
   });
 
   @override
@@ -46,6 +48,17 @@ class KnowledgeDrawer extends StatelessWidget {
                     ),
                   ),
                   const Spacer(),
+                  if (onExportAll != null && (hasIndex || docs.isNotEmpty))
+                    IconButton(
+                      key: const Key('drawer_export_knowledge_btn'),
+                      tooltip: '导出知识库 (.zip)',
+                      icon: Icon(
+                        Icons.ios_share_rounded,
+                        size: 19,
+                        color: AppColors.primary,
+                      ),
+                      onPressed: onExportAll,
+                    ),
                   IconButton(
                     icon: const Icon(Icons.close_rounded, size: 20),
                     onPressed: () => Navigator.of(context).pop(),
@@ -139,7 +152,7 @@ class KnowledgeDrawer extends StatelessWidget {
                   if (chatState.conversationalMessages.length >= 2)
                     TextButton.icon(
                       onPressed: chatState.isCompacting ? null : onCompactNow,
-                      icon: const Icon(Icons.bookmark_add_outlined, size: 15),
+                      icon: const Icon(Icons.auto_awesome_rounded, size: 15),
                       label: const Text('沉淀'),
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
