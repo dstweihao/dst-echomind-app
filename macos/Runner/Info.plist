@@ -18,6 +18,8 @@
 	<string>回响</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>用于录制你的语音提问，并通过 DeepSeek 语音识别转为文字。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>用于拍照添加图片，发送给回响一起分析学习。</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

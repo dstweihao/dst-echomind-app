@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -83,12 +84,28 @@ class NativeAttachmentPickerService implements AttachmentPickerService {
   })  : _imagePicker = imagePicker ?? ImagePicker(),
         _uuid = uuid ?? const Uuid();
 
+  static const MethodChannel _macCameraChannel =
+      MethodChannel('com.dstweihao.echomind/camera');
+
   @override
-  bool get supportsCamera => Platform.isAndroid || Platform.isIOS;
+  bool get supportsCamera =>
+      Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
 
   @override
   Future<StudyAttachment?> pickFromCamera() async {
     if (!supportsCamera) return null;
+
+    if (Platform.isMacOS) {
+      try {
+        final capturedPath =
+            await _macCameraChannel.invokeMethod<String>('capturePhoto');
+        if (capturedPath == null || capturedPath.trim().isEmpty) return null;
+        return await _persistPickedFile(XFile(capturedPath), forceImage: true);
+      } on PlatformException catch (e) {
+        throw StateError(e.message ?? '无法调用摄像头');
+      }
+    }
+
     final picked = await _imagePicker.pickImage(
       source: ImageSource.camera,
       maxWidth: 1920,
