@@ -22,6 +22,15 @@ void main() {
       expect(AiSettings(baseUrl: 'ftp://x', model: 'm').validate(), isNotEmpty);
       expect(AiSettings(baseUrl: 'https://x.com', model: 'm').validate(), isEmpty);
     });
+
+    test('默认开启联网搜索且支持持久化序列化', () {
+      expect(AiSettings.defaults.enableWebSearch, isTrue);
+      // 老配置文件缺省 enable_web_search 时默认开启
+      expect(AiSettings.fromMap(const {'model': 'deepseek-flash'}).enableWebSearch, isTrue);
+      // 显式关闭后能正确往返
+      final off = AiSettings.defaults.copyWith(enableWebSearch: false);
+      expect(AiSettings.fromMap(off.toMap()).enableWebSearch, isFalse);
+    });
   });
 
   group('OpenAiClient 协议构造', () {
@@ -70,6 +79,54 @@ void main() {
 
     test('服务端错误提取', () {
       expect(client.extractServerError({'error': {'message': '401 bad key'}}), '401 bad key');
+    });
+
+    test('开启联网搜索时注入 DeepSeek 服务端工具，关闭时不注入', () {
+      final withSearch = client.buildBody(
+        const [AiMessage.user('最新新闻')],
+        stream: true,
+        enableWebSearch: true,
+      );
+      expect(withSearch['tools'], [
+        {'type': 'deepseek_web_search'},
+        {'type': 'deepseek_read_url'},
+      ]);
+
+      final withoutSearch = client.buildBody(
+        const [AiMessage.user('最新新闻')],
+        stream: true,
+        enableWebSearch: false,
+      );
+      expect(withoutSearch.containsKey('tools'), isFalse);
+    });
+
+    test('流式服务端工具事件提取状态提示', () {
+      expect(
+        client.extractStatusHint({
+          'choices': [
+            {
+              'server_tool_event': {
+                'type': 'call_started',
+                'call': {'type': 'deepseek_web_search', 'kind': 'search'},
+              },
+            },
+          ],
+        }),
+        '正在联网搜索…',
+      );
+      expect(
+        client.extractStatusHint({
+          'choices': [
+            {
+              'server_tool_event': {
+                'type': 'call_started',
+                'call': {'type': 'deepseek_read_url', 'kind': 'read_link'},
+              },
+            },
+          ],
+        }),
+        '正在阅读网页…',
+      );
     });
   });
 

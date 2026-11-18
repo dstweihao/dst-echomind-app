@@ -35,6 +35,7 @@ dependencies:
   url_launcher: ^6.3.2
   file_selector: ^1.1.0
   image_picker: ^1.1.2
+  pasteboard: ^0.6.1
   share_plus: ^13.3.1
   flutter_markdown: ^0.7.7+1
   record: ^7.2.0

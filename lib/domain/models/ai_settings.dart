@@ -26,6 +26,9 @@ class AiSettings {
   /// 是否开启深度思考模式（`deepseek-flash` 默认关闭以换取秒级语音首字响应）
   final bool enableThinking;
 
+  /// 是否开启联网搜索与网页阅读（DeepSeek 服务端托管工具，默认开启）
+  final bool enableWebSearch;
+
   final int timeoutSeconds;
 
   /// 人设预设标识
@@ -49,6 +52,7 @@ class AiSettings {
     this.maxTokens = 4096,
     this.reasoningEffort = 'high',
     this.enableThinking = false,
+    this.enableWebSearch = true,
     this.timeoutSeconds = 120,
     this.persona = 'study_mode_socratic',
     this.autoPlayTts = false,
@@ -78,6 +82,7 @@ class AiSettings {
     String? reasoningEffort,
     bool clearReasoningEffort = false,
     bool? enableThinking,
+    bool? enableWebSearch,
     int? timeoutSeconds,
     String? persona,
     bool? autoPlayTts,
@@ -95,6 +100,7 @@ class AiSettings {
           ? null
           : (reasoningEffort ?? this.reasoningEffort),
       enableThinking: enableThinking ?? this.enableThinking,
+      enableWebSearch: enableWebSearch ?? this.enableWebSearch,
       timeoutSeconds: timeoutSeconds ?? this.timeoutSeconds,
       persona: persona ?? this.persona,
       autoPlayTts: autoPlayTts ?? this.autoPlayTts,
@@ -186,6 +192,8 @@ class AiSettings {
       maxTokens: _toInt(map['max_tokens'], defaults.maxTokens),
       reasoningEffort: _nullableString(map['reasoning_effort']),
       enableThinking: _toBool(map['enable_thinking'], defaults.enableThinking),
+      enableWebSearch:
+          _toBool(map['enable_web_search'], defaults.enableWebSearch),
       timeoutSeconds: _toInt(map['timeout_seconds'], defaults.timeoutSeconds),
       persona: (map['persona'] ?? defaults.persona).toString(),
       autoPlayTts: _toBool(map['auto_play_tts'], defaults.autoPlayTts),
@@ -205,6 +213,7 @@ class AiSettings {
         if (reasoningEffort != null && reasoningEffort!.isNotEmpty)
           'reasoning_effort': reasoningEffort,
         'enable_thinking': enableThinking,
+        'enable_web_search': enableWebSearch,
         'timeout_seconds': timeoutSeconds,
         'persona': persona,
         'auto_play_tts': autoPlayTts,
@@ -253,6 +262,7 @@ class AiSettings {
           other.maxTokens == maxTokens &&
           other.reasoningEffort == reasoningEffort &&
           other.enableThinking == enableThinking &&
+          other.enableWebSearch == enableWebSearch &&
           other.timeoutSeconds == timeoutSeconds &&
           other.persona == persona &&
           other.autoPlayTts == autoPlayTts &&
@@ -269,6 +279,7 @@ class AiSettings {
         maxTokens,
         reasoningEffort,
         enableThinking,
+        enableWebSearch,
         timeoutSeconds,
         persona,
         autoPlayTts,
@@ -278,5 +289,5 @@ class AiSettings {
 
   @override
   String toString() =>
-      'AiSettings(${protocol.name} · $model · thinking=$enableThinking · tts=$autoPlayTts/$ttsVoiceId)';
+      'AiSettings(${protocol.name} · $model · thinking=$enableThinking · webSearch=$enableWebSearch · tts=$autoPlayTts/$ttsVoiceId)';
 }

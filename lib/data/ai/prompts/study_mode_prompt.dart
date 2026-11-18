@@ -47,8 +47,17 @@ class StudyModePrompt {
     String? rollingSummary,
     String? focusedDocTitle,
     String? focusedDocContent,
+    bool webSearchEnabled = false,
   }) {
     final buf = StringBuffer(systemPrompt.trim());
+
+    if (webSearchEnabled) {
+      buf
+        ..writeln()
+        ..writeln()
+        ..writeln('## 联网核实能力（已开启）')
+        ..writeln('- 你已接入实时联网搜索与网页阅读能力。遇到近期新闻、实时数据、具体人物动态、版本更新或用户贴出的网页链接时，优先联网核实事实后再用苏格拉底方式聊透，切勿凭旧记忆猜测或谎称自己不能联网。');
+    }
 
     final index = knowledgeIndex?.trim() ?? '';
     if (index.isNotEmpty) {

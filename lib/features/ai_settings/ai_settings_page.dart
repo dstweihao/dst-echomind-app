@@ -39,6 +39,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
 
   String _selectedModel = 'deepseek-flash';
   bool _enableThinking = false;
+  bool _enableWebSearch = true;
   bool _autoPlayTts = false;
   String _ttsVoiceId = 'stella';
   bool _autoSendAfterAsr = true;
@@ -77,6 +78,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
               ? aiSettings.model
               : 'deepseek-flash';
       _enableThinking = aiSettings.enableThinking;
+      _enableWebSearch = aiSettings.enableWebSearch;
       _autoPlayTts = aiSettings.autoPlayTts;
       _ttsVoiceId = aiSettings.ttsVoiceId;
       _autoSendAfterAsr = aiSettings.autoSendAfterAsr;
@@ -337,8 +339,14 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
               ),
             );
           }),
+          const SizedBox(height: 6),
+          _buildSwitchRow(
+            title: '联网搜索',
+            value: _enableWebSearch,
+            onChanged: (v) => setState(() => _enableWebSearch = v),
+          ),
           if (_selectedModel == 'deepseek-flash') ...[
-            const SizedBox(height: 6),
+            const Divider(height: 12, color: Color(0xFFF1F5F9)),
             _buildSwitchRow(
               title: '深度思考',
               value: _enableThinking,
@@ -747,6 +755,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
       maxTokens: 4096,
       reasoningEffort: 'high',
       enableThinking: _enableThinking,
+      enableWebSearch: _enableWebSearch,
       timeoutSeconds: 120,
       persona: 'study_mode_socratic',
       autoPlayTts: _autoPlayTts,

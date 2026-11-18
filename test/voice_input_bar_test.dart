@@ -2,6 +2,7 @@ import 'package:echomind_app/domain/models/knowledge_models.dart';
 import 'package:echomind_app/features/learn/study_chat_controller.dart';
 import 'package:echomind_app/features/learn/widgets/voice_input_bar.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -156,5 +157,131 @@ void main() {
     await tester.tap(find.byIcon(Icons.close_rounded));
     await tester.pump();
     expect(removedId, 'att-1');
+  });
+
+  testWidgets(
+    'macOS 按 Cmd+V 优先粘贴剪贴板图片，无图片时无缝回落粘贴纯文本',
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+    (tester) async {
+      final textCtrl = TextEditingController();
+      addTearDown(textCtrl.dispose);
+
+    var pasteCalls = 0;
+    var hasImageInClipboard = true;
+    String? lastChanged;
+
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return {'text': '纯文本剪贴板内容'};
+        }
+        return null;
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: VoiceInputBar(
+              controller: textCtrl,
+              isGenerating: false,
+              voicePhase: VoiceInputPhase.idle,
+              recordingAmplitude: 0.0,
+              recordingDuration: Duration.zero,
+              onSendText: () {},
+              onCancelGeneration: () {},
+              onStartRecording: () {},
+              onStopRecording: () {},
+              onCancelRecording: () {},
+              onTextChanged: (v) => lastChanged = v,
+              onPasteFromClipboard: () async {
+                pasteCalls++;
+                return hasImageInClipboard;
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+
+    // 1. 剪贴板有图片：命中图片粘贴，不写入纯文本
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pumpAndSettle();
+
+    expect(pasteCalls, 1);
+    expect(textCtrl.text, isEmpty);
+
+    // 2. 剪贴板无图片：回落粘贴纯文本
+    hasImageInClipboard = false;
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pumpAndSettle();
+
+    expect(pasteCalls, 2);
+    expect(textCtrl.text, '纯文本剪贴板内容');
+    expect(lastChanged, '纯文本剪贴板内容');
+  });
+
+  testWidgets(
+    'Windows 按 Ctrl+V 触发剪贴板图片粘贴',
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    (tester) async {
+      final textCtrl = TextEditingController();
+      addTearDown(textCtrl.dispose);
+
+    var pasteCalls = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: VoiceInputBar(
+              controller: textCtrl,
+              isGenerating: false,
+              voicePhase: VoiceInputPhase.idle,
+              recordingAmplitude: 0.0,
+              recordingDuration: Duration.zero,
+              onSendText: () {},
+              onCancelGeneration: () {},
+              onStartRecording: () {},
+              onStopRecording: () {},
+              onCancelRecording: () {},
+              onTextChanged: (_) {},
+              onPasteFromClipboard: () async {
+                pasteCalls++;
+                return true;
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    expect(pasteCalls, 1);
   });
 }

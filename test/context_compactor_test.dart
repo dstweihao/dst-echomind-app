@@ -11,10 +11,17 @@ class _StubAiClient implements AiClient {
   _StubAiClient(this.reply);
 
   @override
-  Future<String> chat(List<AiMessage> messages) async => reply;
+  Future<String> chat(
+    List<AiMessage> messages, {
+    bool? enableWebSearch,
+  }) async =>
+      reply;
 
   @override
-  Stream<AiChunk> streamChat(List<AiMessage> messages) async* {
+  Stream<AiChunk> streamChat(
+    List<AiMessage> messages, {
+    bool? enableWebSearch,
+  }) async* {
     yield AiChunk(reply);
     yield AiChunk.done;
   }

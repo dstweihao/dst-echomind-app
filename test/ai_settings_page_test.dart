@@ -55,9 +55,20 @@ void main() {
 
     // 验证最新推荐模型与语音设置
     expect(find.text('deepseek-flash'), findsWidgets);
+    expect(find.text('联网搜索'), findsOneWidget);
     expect(find.text('自动播报回复'), findsOneWidget);
     expect(find.text('海星 · 女声'), findsOneWidget);
     expect(find.text('暗潮 · 男声'), findsOneWidget);
+
+    // 验证「联网搜索」默认开启
+    final webSearchRow = find.ancestor(
+      of: find.text('联网搜索'),
+      matching: find.byType(Row),
+    );
+    final webSearchSwitch = tester.widget<Switch>(
+      find.descendant(of: webSearchRow.first, matching: find.byType(Switch)),
+    );
+    expect(webSearchSwitch.value, isTrue);
 
     // 验证保留版本检查与作者个人主页信息
     expect(find.text('检查更新'), findsOneWidget);

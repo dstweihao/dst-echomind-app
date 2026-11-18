@@ -26,7 +26,10 @@ class _FakeAiClient implements AiClient {
   _FakeAiClient(this.deltas, {required this.compactJsonReply});
 
   @override
-  Stream<AiChunk> streamChat(List<AiMessage> messages) async* {
+  Stream<AiChunk> streamChat(
+    List<AiMessage> messages, {
+    bool? enableWebSearch,
+  }) async* {
     lastStreamMessages = messages;
     for (final d in deltas) {
       await Future<void>.delayed(const Duration(milliseconds: 5));
@@ -36,7 +39,11 @@ class _FakeAiClient implements AiClient {
   }
 
   @override
-  Future<String> chat(List<AiMessage> messages) async => compactJsonReply;
+  Future<String> chat(
+    List<AiMessage> messages, {
+    bool? enableWebSearch,
+  }) async =>
+      compactJsonReply;
 
   @override
   Future<void> testConnection() async {}

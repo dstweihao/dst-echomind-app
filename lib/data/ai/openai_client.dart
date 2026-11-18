@@ -25,6 +25,7 @@ class OpenAiClient extends BaseAiClient {
   Map<String, dynamic> buildBody(
     List<AiMessage> messages, {
     required bool stream,
+    bool enableWebSearch = false,
   }) {
     final body = <String, dynamic>{
       'model': settings.model,
@@ -65,7 +66,36 @@ class OpenAiClient extends BaseAiClient {
       body['reasoning_effort'] = effort;
     }
 
+    if (enableWebSearch && settings.isDeepSeekEndpoint) {
+      body['tools'] = const [
+        {'type': 'deepseek_web_search'},
+        {'type': 'deepseek_read_url'},
+      ];
+    }
+
     return body;
+  }
+
+  @override
+  String? extractStatusHint(Map<String, dynamic> event) {
+    final choices = event['choices'];
+    if (choices is! List || choices.isEmpty) return null;
+    final first = choices.first;
+    if (first is! Map) return null;
+    final toolEvent = first['server_tool_event'];
+    if (toolEvent is! Map) return null;
+    if (toolEvent['type']?.toString() != 'call_started') return null;
+
+    final call = toolEvent['call'];
+    if (call is! Map) return '正在联网搜索…';
+    final callType = call['type']?.toString() ?? '';
+    final callKind = call['kind']?.toString() ?? '';
+    if (callType == 'deepseek_read_url' ||
+        callKind == 'read_link' ||
+        callKind == 'open_page') {
+      return '正在阅读网页…';
+    }
+    return '正在联网搜索…';
   }
 
   @override

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -69,7 +70,10 @@ class _LearnPageState extends ConsumerState<LearnPage> {
         !chatState.isGenerating &&
         !chatState.isCompacting;
 
-    return Scaffold(
+    final isMac = defaultTargetPlatform == TargetPlatform.macOS;
+    final isWindows = defaultTargetPlatform == TargetPlatform.windows;
+
+    final scaffold = Scaffold(
       backgroundColor: AppColors.background,
       drawer: KnowledgeDrawer(
         chatState: chatState,
@@ -271,9 +275,28 @@ class _LearnPageState extends ConsumerState<LearnPage> {
               onPickGallery: () => controller.pickGalleryImages(),
               onPickFiles: () => controller.pickFiles(),
               onRemoveAttachment: controller.removePendingAttachment,
+              onPasteFromClipboard: controller.pasteFromClipboard,
             ),
           ],
         ),
+      ),
+    );
+
+    if (!isMac && !isWindows) return scaffold;
+
+    return CallbackShortcuts(
+      bindings: {
+        SingleActivator(
+          LogicalKeyboardKey.keyV,
+          meta: isMac,
+          control: isWindows,
+        ): () {
+          unawaited(controller.pasteFromClipboard());
+        },
+      },
+      child: Focus(
+        autofocus: true,
+        child: scaffold,
       ),
     );
   }

@@ -98,7 +98,10 @@ class AiChunk {
   final String delta;
   final bool isDone;
 
-  const AiChunk(this.delta, {this.isDone = false});
+  /// 可选实时状态提示（如服务端正在执行「正在联网搜索…」「正在阅读网页…」）
+  final String? statusHint;
+
+  const AiChunk(this.delta, {this.isDone = false, this.statusHint});
 
   static const AiChunk done = AiChunk('', isDone: true);
 }
@@ -106,15 +109,21 @@ class AiChunk {
 /// 协议无关的 AI 客户端
 ///
 /// 两个实现：
-/// - [OpenAiClient] 走 `POST {base_url}/chat/completions`，覆盖 DeepSeek / Kimi / GLM / 通义 / OpenAI
-/// - [AnthropicClient] 走 `POST {base_url}/v1/messages`，覆盖 Claude 与 DeepSeek 的 Anthropic 端点
+/// - [OpenAiClient] 走 `POST {base_url}/chat/completions`，覆盖 DeepSeek 等 OpenAI 兼容端点
+/// - [AnthropicClient] 走 `POST {base_url}/v1/messages`，覆盖 DeepSeek Anthropic 兼容端点
 abstract class AiClient {
   /// 失败时抛 [AiException]，调用方据 `kind.shouldDegradeGracefully`
   /// 决定是降级还是提示用户。
-  Stream<AiChunk> streamChat(List<AiMessage> messages);
+  Stream<AiChunk> streamChat(
+    List<AiMessage> messages, {
+    bool? enableWebSearch,
+  });
 
-  /// 内部消费流并拼接，用于「测试连接」
-  Future<String> chat(List<AiMessage> messages);
+  /// 内部消费流并拼接，用于「测试连接」或后台知识沉淀
+  Future<String> chat(
+    List<AiMessage> messages, {
+    bool? enableWebSearch,
+  });
 
   /// 发一条极短请求验证配置可用
   Future<void> testConnection();

@@ -455,6 +455,25 @@ class StudyChatController extends Notifier<StudyChatState> {
     }
   }
 
+  /// 桌面端（macOS / Windows）直接 Cmd+V / Ctrl+V 粘贴剪贴板图片或文件，返回是否命中图片/文件
+  Future<bool> pasteFromClipboard() async {
+    if (state.isGenerating || state.isParsingAttachment) return false;
+    try {
+      final items = await ref
+          .read(attachmentPickerServiceProvider)
+          .pickFromClipboard();
+      if (!ref.mounted || items.isEmpty) return false;
+      _appendPendingAttachments(items);
+      return true;
+    } catch (e) {
+      if (!ref.mounted) return false;
+      state = state.copyWith(
+        errorMessage: e is StateError ? e.message : '粘贴剪贴板图片失败：$e',
+      );
+      return false;
+    }
+  }
+
   void _appendPendingAttachments(List<StudyAttachment> additions) {
     final merged = [...state.pendingAttachments, ...additions];
     if (merged.length > maxPendingAttachments) {
@@ -651,6 +670,7 @@ class StudyChatController extends Notifier<StudyChatState> {
       rollingSummary: state.rollingSummary,
       focusedDocTitle: state.focusedDocTitle,
       focusedDocContent: state.focusedDocContent,
+      webSearchEnabled: settings.enableWebSearch && settings.isDeepSeekEndpoint,
     );
 
     final wireMessages = await _buildWireMessages(
@@ -659,11 +679,25 @@ class StudyChatController extends Notifier<StudyChatState> {
     );
 
     try {
-      _llmSub = client.streamChat(wireMessages).listen(
+      _llmSub = client
+          .streamChat(
+            wireMessages,
+            enableWebSearch: settings.enableWebSearch,
+          )
+          .listen(
         (chunk) {
           if (!ref.mounted || chunk.isDone) return;
+          if (chunk.statusHint != null &&
+              chunk.statusHint!.isNotEmpty &&
+              state.streamingText.isEmpty) {
+            state = state.copyWith(statusBanner: chunk.statusHint);
+          }
+          if (chunk.delta.isEmpty) return;
           final nextStreaming = state.streamingText + chunk.delta;
-          state = state.copyWith(streamingText: nextStreaming);
+          state = state.copyWith(
+            streamingText: nextStreaming,
+            clearStatusBanner: state.statusBanner != null,
+          );
 
           if (shouldAutoSpeak && !wsFailed && token == _playbackToken) {
             final readyChunks = chunker.addDelta(chunk.delta);
@@ -692,6 +726,7 @@ class StudyChatController extends Notifier<StudyChatState> {
           state = state.copyWith(
             isGenerating: false,
             streamingText: '',
+            clearStatusBanner: true,
             errorMessage: msg,
           );
           await _appendMessages([errBubble]);
@@ -706,6 +741,7 @@ class StudyChatController extends Notifier<StudyChatState> {
           state = state.copyWith(
             isGenerating: false,
             streamingText: '',
+            clearStatusBanner: true,
           );
 
           if (fullReply.isNotEmpty) {
@@ -943,6 +979,7 @@ class StudyChatController extends Notifier<StudyChatState> {
     state = state.copyWith(
       isGenerating: false,
       streamingText: '',
+      clearStatusBanner: true,
     );
 
     if (partial.isNotEmpty) {

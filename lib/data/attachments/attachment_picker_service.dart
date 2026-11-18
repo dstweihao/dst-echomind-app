@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:pasteboard/pasteboard.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -11,13 +13,14 @@ import 'package:uuid/uuid.dart';
 import '../../domain/models/knowledge_models.dart';
 import '../ai/deepseek_ocr_client.dart';
 
-/// 四端附件采集服务接口（拍照 / 相册选择 / 添加文件），便于测试注入 Fake 实现
+/// 四端附件采集服务接口（拍照 / 相册选择 / 添加文件 / 桌面剪贴板粘贴），便于测试注入 Fake 实现
 abstract class AttachmentPickerService {
   bool get supportsCamera;
 
   Future<StudyAttachment?> pickFromCamera();
   Future<List<StudyAttachment>> pickFromGallery();
   Future<List<StudyAttachment>> pickFiles();
+  Future<List<StudyAttachment>> pickFromClipboard();
 }
 
 class NativeAttachmentPickerService implements AttachmentPickerService {
@@ -196,17 +199,124 @@ class NativeAttachmentPickerService implements AttachmentPickerService {
     return out;
   }
 
+  @override
+  Future<List<StudyAttachment>> pickFromClipboard() async {
+    // 1. 优先检查从访达 / 资源管理器复制的图片或支持文档文件
+    try {
+      final filePaths = await Pasteboard.files();
+      if (filePaths.isNotEmpty) {
+        final out = <StudyAttachment>[];
+        for (final rawPath in filePaths) {
+          final file = File(rawPath);
+          if (!file.existsSync()) continue;
+          final ext = p.extension(rawPath).toLowerCase();
+          if (imageExts.contains(ext) ||
+              plainTextExts.contains(ext) ||
+              ocrDocumentExts.contains(ext)) {
+            out.add(await _persistPickedFile(XFile(rawPath)));
+          }
+        }
+        if (out.isNotEmpty) return out;
+      }
+    } catch (_) {}
+
+    // 2. 检查剪贴板原始截图 / 浏览器复制图片
+    try {
+      final imageBytes = await Pasteboard.image;
+      if (imageBytes != null && imageBytes.isNotEmpty) {
+        final normalized = await _normalizeClipboardImage(imageBytes);
+        final ts = DateTime.now().millisecondsSinceEpoch;
+        final att = await _persistBytes(
+          bytes: normalized.bytes,
+          rawName: 'screenshot_$ts${normalized.ext}',
+          forceImage: true,
+        );
+        return [att];
+      }
+    } catch (_) {}
+
+    return const [];
+  }
+
+  /// Windows 下 `Pasteboard.image` 返回的是未压缩 BMP，转成 PNG 以便模型视觉接口识别并大幅压缩体积
+  Future<({Uint8List bytes, String ext})> _normalizeClipboardImage(
+    Uint8List rawBytes,
+  ) async {
+    if (rawBytes.length >= 4) {
+      // PNG: 89 50 4E 47
+      if (rawBytes[0] == 0x89 &&
+          rawBytes[1] == 0x50 &&
+          rawBytes[2] == 0x4E &&
+          rawBytes[3] == 0x47) {
+        return (bytes: rawBytes, ext: '.png');
+      }
+      // JPEG: FF D8 FF
+      if (rawBytes[0] == 0xFF && rawBytes[1] == 0xD8 && rawBytes[2] == 0xFF) {
+        return (bytes: rawBytes, ext: '.jpg');
+      }
+      // GIF: 47 49 46 38
+      if (rawBytes[0] == 0x47 &&
+          rawBytes[1] == 0x49 &&
+          rawBytes[2] == 0x46 &&
+          rawBytes[3] == 0x38) {
+        return (bytes: rawBytes, ext: '.gif');
+      }
+      // WebP: RIFF....WEBP
+      if (rawBytes.length >= 12 &&
+          rawBytes[0] == 0x52 &&
+          rawBytes[1] == 0x49 &&
+          rawBytes[2] == 0x46 &&
+          rawBytes[3] == 0x46 &&
+          rawBytes[8] == 0x57 &&
+          rawBytes[9] == 0x45 &&
+          rawBytes[10] == 0x42 &&
+          rawBytes[11] == 0x50) {
+        return (bytes: rawBytes, ext: '.webp');
+      }
+    }
+
+    // 其他格式（如 Windows BMP: 42 4D）统一解码并编码为 PNG
+    final codec = await ui.instantiateImageCodec(rawBytes);
+    try {
+      final frame = await codec.getNextFrame();
+      try {
+        final pngData =
+            await frame.image.toByteData(format: ui.ImageByteFormat.png);
+        if (pngData != null) {
+          return (bytes: pngData.buffer.asUint8List(), ext: '.png');
+        }
+      } finally {
+        frame.image.dispose();
+      }
+    } finally {
+      codec.dispose();
+    }
+    return (bytes: rawBytes, ext: '.png');
+  }
+
   Future<StudyAttachment> _persistPickedFile(
     XFile source, {
     bool forceImage = false,
   }) async {
-    final id = _uuid.v4();
     final rawName = source.name.trim().isNotEmpty
         ? source.name.trim()
         : p.basename(source.path);
+    final bytes = await source.readAsBytes();
+    return _persistBytes(
+      bytes: bytes,
+      rawName: rawName,
+      forceImage: forceImage,
+    );
+  }
+
+  Future<StudyAttachment> _persistBytes({
+    required Uint8List bytes,
+    required String rawName,
+    bool forceImage = false,
+  }) async {
+    final id = _uuid.v4();
     final ext = p.extension(rawName).toLowerCase();
     final isImage = forceImage || imageExts.contains(ext);
-    final bytes = await source.readAsBytes();
 
     if (isImage && bytes.length > maxImageBytes) {
       throw StateError('图片「$rawName」超过 20MB 上限');

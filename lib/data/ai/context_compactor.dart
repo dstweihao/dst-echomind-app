@@ -106,10 +106,13 @@ class ContextCompactor {
       userPayload.writeln('$speaker：${m.content.trim()}');
     }
 
-    final rawResponse = await aiClient.chat([
-      const AiMessage.system(_distillSystemPrompt),
-      AiMessage.user(userPayload.toString()),
-    ]);
+    final rawResponse = await aiClient.chat(
+      [
+        const AiMessage.system(_distillSystemPrompt),
+        AiMessage.user(userPayload.toString()),
+      ],
+      enableWebSearch: false,
+    );
 
     return parseCompactionResponse(
       rawResponse,

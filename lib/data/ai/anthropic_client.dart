@@ -34,6 +34,7 @@ class AnthropicClient extends BaseAiClient {
   Map<String, dynamic> buildBody(
     List<AiMessage> messages, {
     required bool stream,
+    bool enableWebSearch = false,
   }) {
     // system 抽出来单独传
     final systemParts = <String>[];
@@ -61,6 +62,13 @@ class AnthropicClient extends BaseAiClient {
 
     if (systemParts.isNotEmpty) {
       body['system'] = systemParts.join('\n\n');
+    }
+
+    if (enableWebSearch && settings.isDeepSeekEndpoint) {
+      body['tools'] = const [
+        {'type': 'deepseek_web_search', 'name': 'deepseek_web_search'},
+        {'type': 'deepseek_read_url', 'name': 'deepseek_read_url'},
+      ];
     }
 
     return body;

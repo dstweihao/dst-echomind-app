@@ -40,10 +40,17 @@ abstract class BaseAiClient implements AiClient {
   Map<String, String> buildHeaders();
 
   /// 请求体
-  Map<String, dynamic> buildBody(List<AiMessage> messages, {required bool stream});
+  Map<String, dynamic> buildBody(
+    List<AiMessage> messages, {
+    required bool stream,
+    bool enableWebSearch = false,
+  });
 
   /// 从单个流式事件里取出文本增量；非文本事件返回 null
   String? extractDelta(Map<String, dynamic> event);
+
+  /// 从单个流式事件里取出服务端工具实时状态提示（如正在联网搜索）；无则返回 null
+  String? extractStatusHint(Map<String, dynamic> event) => null;
 
   /// 该事件是否表示流结束
   bool isDoneEvent(Map<String, dynamic> event);
@@ -59,7 +66,10 @@ abstract class BaseAiClient implements AiClient {
   // ------------------------------------------------------------------
 
   @override
-  Stream<AiChunk> streamChat(List<AiMessage> messages) async* {
+  Stream<AiChunk> streamChat(
+    List<AiMessage> messages, {
+    bool? enableWebSearch,
+  }) async* {
     _ensureConfigured();
     _cancelled = false;
 
@@ -72,10 +82,13 @@ abstract class BaseAiClient implements AiClient {
       );
     }
 
+    final useWebSearch = enableWebSearch ?? settings.enableWebSearch;
     final request = http.Request('POST', buildUri());
     request.headers.addAll(buildHeaders());
     request.headers['Accept'] = 'text/event-stream';
-    request.body = jsonEncode(buildBody(messages, stream: true));
+    request.body = jsonEncode(
+      buildBody(messages, stream: true, enableWebSearch: useWebSearch),
+    );
 
     final client = http.Client();
     _activeRequestClient = client;
@@ -120,14 +133,19 @@ abstract class BaseAiClient implements AiClient {
             throw AiException(AiErrorKind.server, detail: errorMsg);
           }
 
-          if (isDoneEvent(event)) {
-            yield AiChunk.done;
-            return;
+          final statusHint = extractStatusHint(event);
+          if (statusHint != null && statusHint.isNotEmpty) {
+            yield AiChunk('', statusHint: statusHint);
           }
 
           final delta = extractDelta(event);
           if (delta != null && delta.isNotEmpty) {
             yield AiChunk(delta);
+          }
+
+          if (isDoneEvent(event)) {
+            yield AiChunk.done;
+            return;
           }
         }
       }
@@ -176,9 +194,13 @@ abstract class BaseAiClient implements AiClient {
   }
 
   @override
-  Future<String> chat(List<AiMessage> messages) async {
+  Future<String> chat(
+    List<AiMessage> messages, {
+    bool? enableWebSearch,
+  }) async {
     final buffer = StringBuffer();
-    await for (final chunk in streamChat(messages)) {
+    await for (final chunk
+        in streamChat(messages, enableWebSearch: enableWebSearch)) {
       if (chunk.isDone) break;
       buffer.write(chunk.delta);
     }
@@ -188,10 +210,11 @@ abstract class BaseAiClient implements AiClient {
   @override
   Future<void> testConnection() async {
     _ensureConfigured();
-    // 用极短的一次性请求验证 key 与模型名
-    final text = await chat(const [
-      AiMessage.user('回复"ok"两个字符即可，不要任何其他内容。'),
-    ]);
+    // 用极短的一次性请求验证 key 与模型名（不触发联网搜索）
+    final text = await chat(
+      const [AiMessage.user('回复"ok"两个字符即可，不要任何其他内容。')],
+      enableWebSearch: false,
+    );
     if (text.trim().isEmpty) {
       throw const AiException(
         AiErrorKind.malformedResponse,

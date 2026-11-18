@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -32,6 +34,7 @@ class VoiceInputBar extends StatefulWidget {
   final VoidCallback? onPickGallery;
   final VoidCallback? onPickFiles;
   final ValueChanged<String>? onRemoveAttachment;
+  final Future<bool> Function()? onPasteFromClipboard;
 
   const VoiceInputBar({
     super.key,
@@ -53,6 +56,7 @@ class VoiceInputBar extends StatefulWidget {
     this.onPickGallery,
     this.onPickFiles,
     this.onRemoveAttachment,
+    this.onPasteFromClipboard,
   });
 
   @override
@@ -68,7 +72,62 @@ class _VoiceInputBarState extends State<VoiceInputBar> {
   int? _activePointer;
   double _pressStartGlobalY = 0.0;
 
-  final FocusNode _focusNode = FocusNode();
+  late final FocusNode _focusNode = FocusNode(onKeyEvent: _handleTextKeyEvent);
+
+  bool get _isDesktopPastePlatform =>
+      defaultTargetPlatform == TargetPlatform.macOS ||
+      defaultTargetPlatform == TargetPlatform.windows;
+
+  KeyEventResult _handleTextKeyEvent(FocusNode node, KeyEvent event) {
+    if (widget.onPasteFromClipboard == null || !_isDesktopPastePlatform) {
+      return KeyEventResult.ignored;
+    }
+    if (event is! KeyDownEvent || event.logicalKey != LogicalKeyboardKey.keyV) {
+      return KeyEventResult.ignored;
+    }
+    final isMac = defaultTargetPlatform == TargetPlatform.macOS;
+    final keys = HardwareKeyboard.instance.logicalKeysPressed;
+    final hasPrimaryModifier = isMac
+        ? (keys.contains(LogicalKeyboardKey.metaLeft) ||
+            keys.contains(LogicalKeyboardKey.metaRight) ||
+            keys.contains(LogicalKeyboardKey.meta))
+        : (keys.contains(LogicalKeyboardKey.controlLeft) ||
+            keys.contains(LogicalKeyboardKey.controlRight) ||
+            keys.contains(LogicalKeyboardKey.control));
+    final hasExtraModifier = keys.contains(LogicalKeyboardKey.altLeft) ||
+        keys.contains(LogicalKeyboardKey.altRight) ||
+        keys.contains(LogicalKeyboardKey.shiftLeft) ||
+        keys.contains(LogicalKeyboardKey.shiftRight);
+    if (!hasPrimaryModifier || hasExtraModifier) {
+      return KeyEventResult.ignored;
+    }
+
+    unawaited(_handleDesktopPaste());
+    return KeyEventResult.handled;
+  }
+
+  Future<void> _handleDesktopPaste() async {
+    final pastedAttachment =
+        await (widget.onPasteFromClipboard?.call() ?? Future.value(false));
+    if (pastedAttachment || !mounted) return;
+
+    // 剪贴板不是图片/文件时，无缝回落为正常粘贴纯文本
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final pastedText = data?.text;
+    if (pastedText == null || pastedText.isEmpty || !mounted) return;
+
+    final value = widget.controller.value;
+    final text = value.text;
+    final sel = value.selection;
+    final start = sel.isValid ? sel.start.clamp(0, text.length) : text.length;
+    final end = sel.isValid ? sel.end.clamp(0, text.length) : text.length;
+    final nextText = text.replaceRange(start, end, pastedText);
+    widget.controller.value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(offset: start + pastedText.length),
+    );
+    widget.onTextChanged(nextText);
+  }
 
   @override
   void dispose() {
@@ -190,7 +249,7 @@ class _VoiceInputBarState extends State<VoiceInputBar> {
   }
 
   // ------------------------------------------------------------------
-  // 录音浮层提示（类似豆包 / DeepSeek 上滑取消指示条）
+  // 录音浮层提示（上滑取消指示条）
   // ------------------------------------------------------------------
 
   Widget _buildRecordingOverlayBanner() {
@@ -382,6 +441,42 @@ class _VoiceInputBarState extends State<VoiceInputBar> {
               if (canSend) widget.onSendText();
             },
             onChanged: widget.onTextChanged,
+            contextMenuBuilder: _isDesktopPastePlatform &&
+                    widget.onPasteFromClipboard != null
+                ? (context, editableTextState) {
+                    var hasPaste = false;
+                    final items =
+                        editableTextState.contextMenuButtonItems.map((item) {
+                      if (item.type == ContextMenuButtonType.paste) {
+                        hasPaste = true;
+                        return ContextMenuButtonItem(
+                          type: ContextMenuButtonType.paste,
+                          label: item.label,
+                          onPressed: () {
+                            ContextMenuController.removeAny();
+                            unawaited(_handleDesktopPaste());
+                          },
+                        );
+                      }
+                      return item;
+                    }).toList();
+                    if (!hasPaste) {
+                      items.add(
+                        ContextMenuButtonItem(
+                          type: ContextMenuButtonType.paste,
+                          onPressed: () {
+                            ContextMenuController.removeAny();
+                            unawaited(_handleDesktopPaste());
+                          },
+                        ),
+                      );
+                    }
+                    return AdaptiveTextSelectionToolbar.buttonItems(
+                      anchors: editableTextState.contextMenuAnchors,
+                      buttonItems: items,
+                    );
+                  }
+                : null,
           ),
         ),
         if (_hasAttachmentActions && !widget.isGenerating) ...[
