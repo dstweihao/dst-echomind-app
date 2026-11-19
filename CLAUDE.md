@@ -39,7 +39,26 @@
 
 ---
 
-## 3. 常用开发与构建命令
+## 3. 版本发布与跨平台更新铁律 (Release & Update Guardrails)
+
+在发布新版本（Tagging）或修改客户端更新解析逻辑时，必须死守以下边界：
+
+1. **三端资产完整性铁律**：
+   - GitHub Actions 目前仅配置自动化构建 Windows release（`.zip`）；
+   - 打 `v*` 标签发布新版本时，**绝不允许裸发布仅有 Windows 产物的半成品 Release**！
+   - 必须在本地或专用 runner 同步编译并上传双端产物：
+     * macOS：`flutter build macos --release`，并用 `hdiutil` 封装为 `EchoMind-vX.Y.Z-macos.dmg`；
+     * Android：`flutter build apk --release`，产出 `EchoMind-vX.Y.Z-android.apk`；
+     发布后必须校验 GitHub Release 页面三端附件齐备。
+
+2. **跨平台通用扩展名隔离铁律**：
+   - `.zip` 等属于跨平台通用压缩格式，在客户端解析安装包匹配时，**绝对禁止仅凭文件扩展名结尾匹配**；
+   - 必须通过 `_disallowedPlatformKeywords()` 严格排除其他操作系统的命名特征（如 macOS 必须强制排除 `win`、`windows`、`linux`、`android`）；
+   - 当 Release 中缺少当前平台专属安装包时，必须安全回退至浏览器打开 Release 页面，绝不许错下别家系统的安装包。
+
+---
+
+## 4. 常用开发与构建命令
 
 ```bash
 # 依赖与分析
@@ -57,7 +76,7 @@ codesign --force --deep --sign - build/macos/Build/Products/Debug/echomind_app.a
 
 ---
 
-## 4. 架构与目录导引
+## 5. 架构与目录导引
 
 - `lib/data/ai/prompts/`: 核心提示词定义（修改受上述提示词红线绝对约束）
 - `lib/data/ai/`: DeepSeek 客户端（Chat、WebSocket TTS、ASR 协议实现）

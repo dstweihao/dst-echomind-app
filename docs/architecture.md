@@ -267,6 +267,37 @@ sequenceDiagram
 | **底层播放** | `flutter_soloud` (miniaudio FFI) | 24kHz 实时 PCM 流 | - 彻底摒弃传统“切分成独立 wav/mp3 碎片文件逐个播放”的卡顿方案。<br>- 零文件系统 I/O，零切分断音，整段播报就是一条无缝的连续流。<br>- 内存自动回收（`BufferingType.released`），长对话无内存泄露风险。<br>- 具备毫秒级硬件硬件中断能力（`stop()` 瞬间静音清空底层队列）。 |
 | **容灾重播** | `POST /v1/tools/tts` (HTTP 流) | 24kHz PCM | - 提供 HTTP POST 整段拉取方案，专门应对历史消息点播重听或 WebSocket 握手失败时的平滑降级。 |
 
+### 3.3 版本自更新与跨平台分发架构 (In-App Updates & Cross-Platform Distribution)
+
+回响作为面向多平台的原生应用，构建了一套轻量直连 GitHub Releases 的全自动检查、下载与系统级调起更新流水线：
+
+```mermaid
+flowchart LR
+    A["客户端启动 / 手动检查"] --> B["GET /repos/.../releases/latest"]
+    B --> C["compareVersions(latest, current)"]
+    C -->|无新版| D["提示已是最新版本"]
+    C -->|有新版| E["selectInstallerAsset 筛选本端资产"]
+    E -->|未提供本端安装包| F["openReleasePage 打开浏览器下载页"]
+    E -->|命中合法专属安装包| G["流式写盘至临时目录 (.part)"]
+    G --> H["调起系统原生安装程序<br/>(Android: PackageInstaller / macOS: 挂载 DMG / Win: 打开压缩包)"]
+```
+
+#### 1. 跨平台通用扩展名隔离防御（2026-11-20 踩坑沉淀）
+- **核心痛点**：`.zip` 为跨平台通用压缩格式。Windows 发布包采用 `EchoMind-vX.Y.Z-windows-x64.zip`。若客户端扩展名匹配仅做后缀检查，在某个版本缺失 macOS 专属 `.dmg` 时，macOS 会错误命中 Windows 的 `.zip` 并下载执行。
+- **架构防御体系**：
+  * **扩展名优先级**：macOS 为 `['.dmg', '.pkg', '.zip']`，Windows 为 `['.exe', '.msi', '.zip']`，Android 为 `['.apk']`。
+  * **平台冲突关键词强制过滤 (`_disallowedPlatformKeywords`)**：
+    * macOS：强制排除包含 `win`、`windows`、`linux`、`android` 的附件；
+    * Windows：强制排除包含 `macos`、`darwin`、`mac`、`linux`、`android` 的附件；
+    * Android：强制排除包含 `win`、`windows`、`macos`、`darwin`、`mac`、`linux` 的附件。
+  * 缺失专属安装包时，严格拦截并优雅退化为调用系统默认浏览器打开 GitHub Release 详情页，严禁跨系统错下。
+
+#### 2. 多端发布与打包交付标准
+- **Windows**：通过 `.github/workflows/release.yml` 运行 GitHub Actions 自动化编译，输出 `EchoMind-vX.Y.Z-windows-x64.zip`。
+- **macOS**：执行 `flutter build macos --release`，并用 `hdiutil` 封装为内置 Applications 软链接的标准 UDZO DMG（`EchoMind-vX.Y.Z-macos.dmg`）。
+- **Android**：执行 `flutter build apk --release`，产出原生可安装 APK（`EchoMind-vX.Y.Z-android.apk`）。
+- **发布铁律**：打 `v*` 标签发布新版本时，必须确保三端产物全部上传至 GitHub Release 附件，严禁单端残缺发布。
+
 ---
 
 ## 4. 架构不可动摇的底线原则

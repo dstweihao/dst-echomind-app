@@ -204,6 +204,27 @@ void main() {
     verifyNever(() => httpClient.send(any()));
   });
 
+  test('Release 仅提供 Windows 的 .zip 附件时，非 Windows 平台绝不误下，安全退回到 Release 页', () async {
+    const windowsOnlyRelease = ReleaseInfo(
+      tagName: 'v1.0.6',
+      htmlUrl: 'https://example.com/releases/v1.0.6',
+      assets: [
+        ReleaseAsset(
+          name: 'EchoMind-v1.0.6-windows-x64.zip',
+          browserDownloadUrl: 'https://example.com/download/EchoMind-v1.0.6-windows-x64.zip',
+        ),
+      ],
+    );
+
+    if (!Platform.isWindows) {
+      final result = await installUpdate(windowsOnlyRelease, httpClient: httpClient);
+      expect(result.outcome, InstallOutcome.openedInBrowser);
+      expect(launcher.launched, [windowsOnlyRelease.htmlUrl]);
+      expect(writtenFiles(), isEmpty);
+      verifyNever(() => httpClient.send(any()));
+    }
+  });
+
   group('openReleasePage', () {
     test('成功时报告已送到浏览器，且用外部程序打开', () async {
       final result = await openReleasePage('https://example.com/releases');
