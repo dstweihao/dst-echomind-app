@@ -26,5 +26,5 @@ class UpdateConfig {
   ];
 
   /// Web 读不到版本、Windows debug 偶发陈旧 —— 用它兜底（与 pubspec 保持一致）
-  static const String fallbackVersion = '1.0.6';
+  static const String fallbackVersion = '1.0.7';
 }
