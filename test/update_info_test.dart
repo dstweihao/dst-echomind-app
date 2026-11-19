@@ -79,5 +79,48 @@ void main() {
       expect(selectInstallerAsset(release, const ['.dmg', '.pkg']), isNull);
       expect(selectInstallerAsset(release, const []), isNull);
     });
+
+    test('过滤冲突平台关键词，防止 macOS 误匹配 Windows 的 .zip 附件', () {
+      const mixedRelease = ReleaseInfo(
+        tagName: 'v1.0.6',
+        assets: [
+          ReleaseAsset(
+            name: 'EchoMind-v1.0.6-windows-x64.zip',
+            browserDownloadUrl: 'u_win',
+          ),
+        ],
+      );
+      // macOS 规则排除了 win/windows
+      expect(
+        selectInstallerAsset(
+          mixedRelease,
+          const ['.dmg', '.pkg', '.zip'],
+          disallowedKeywords: const ['win', 'windows'],
+        ),
+        isNull,
+      );
+
+      const completeRelease = ReleaseInfo(
+        tagName: 'v1.0.6',
+        assets: [
+          ReleaseAsset(
+            name: 'EchoMind-v1.0.6-windows-x64.zip',
+            browserDownloadUrl: 'u_win',
+          ),
+          ReleaseAsset(
+            name: 'EchoMind-v1.0.6-macos.dmg',
+            browserDownloadUrl: 'u_mac',
+          ),
+        ],
+      );
+      expect(
+        selectInstallerAsset(
+          completeRelease,
+          const ['.dmg', '.pkg', '.zip'],
+          disallowedKeywords: const ['win', 'windows'],
+        )?.name,
+        'EchoMind-v1.0.6-macos.dmg',
+      );
+    });
   });
 }

@@ -16,7 +16,11 @@ const MethodChannel _androidUpdaterChannel =
 
 /// 选出当前平台对应的安装包附件（桌面端与 Android 均可直接应用内下载）
 ReleaseAsset? selectCurrentPlatformAsset(ReleaseInfo release) =>
-    selectInstallerAsset(release, _platformAssetExts());
+    selectInstallerAsset(
+      release,
+      _platformAssetExts(),
+      disallowedKeywords: _disallowedPlatformKeywords(),
+    );
 
 /// 应用内下载当前平台的安装包并直接拉起系统安装程序（Android / macOS / Windows）。
 ///
@@ -28,7 +32,11 @@ Future<InstallResult> installUpdate(
   void Function(double? progress)? onProgress,
   void Function(int receivedBytes, int? totalBytes)? onBytesProgress,
 }) async {
-  final asset = selectInstallerAsset(release, _platformAssetExts());
+  final asset = selectInstallerAsset(
+    release,
+    _platformAssetExts(),
+    disallowedKeywords: _disallowedPlatformKeywords(),
+  );
   if (asset == null) return _openReleasePage(release.htmlUrl);
 
   final client = httpClient ?? http.Client();
@@ -142,6 +150,15 @@ List<String> _platformAssetExts() {
   if (Platform.isWindows) return UpdateConfig.windowsAssetExts;
   if (Platform.isMacOS) return UpdateConfig.macosAssetExts;
   if (Platform.isLinux) return UpdateConfig.linuxAssetExts;
+  return const [];
+}
+
+/// 冲突平台关键词拦截，严防跨平台通用扩展名（如 `.zip`）误下其它平台的安装包。
+List<String> _disallowedPlatformKeywords() {
+  if (Platform.isMacOS) return const ['win', 'windows', 'linux', 'android'];
+  if (Platform.isWindows) return const ['macos', 'darwin', 'mac', 'linux', 'android'];
+  if (Platform.isLinux) return const ['win', 'windows', 'macos', 'darwin', 'mac', 'android'];
+  if (Platform.isAndroid) return const ['win', 'windows', 'macos', 'darwin', 'mac', 'linux'];
   return const [];
 }
 

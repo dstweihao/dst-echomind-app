@@ -46,13 +46,18 @@ class InstallResult {
 /// 按扩展名优先级挑出该平台的安装包；都不匹配返回 null。
 ///
 /// [extPriority] 顺序即优先级，`.tar.gz` 这类多段后缀按整体匹配。
+/// [disallowedKeywords] 可选传入需排除的冲突平台关键词（如 macOS 排除 'win', 'windows'）。
 ReleaseAsset? selectInstallerAsset(
   ReleaseInfo release,
-  List<String> extPriority,
-) {
+  List<String> extPriority, {
+  List<String> disallowedKeywords = const [],
+}) {
   for (final ext in extPriority) {
     for (final asset in release.assets) {
-      if (asset.name.toLowerCase().endsWith(ext)) return asset;
+      final name = asset.name.toLowerCase();
+      if (!name.endsWith(ext)) continue;
+      if (disallowedKeywords.any((kw) => name.contains(kw))) continue;
+      return asset;
     }
   }
   return null;
