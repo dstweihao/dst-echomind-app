@@ -9,6 +9,16 @@ class AppDelegate: FlutterAppDelegate {
     Self.preloadSoloudNativeAsset()
   }
 
+  override func awakeFromNib() {
+    super.awakeFromNib()
+    Self.preloadSoloudNativeAsset()
+  }
+
+  override func applicationDidFinishLaunching(_ notification: Notification) {
+    Self.preloadSoloudNativeAsset()
+    super.applicationDidFinishLaunching(notification)
+  }
+
   /// flutter_soloud 5.3.0 的 macOS 插件通过 `-undefined dynamic_lookup` 引用
   /// native asset (`flutter_soloud_plugin.framework`) 中的生命周期符号。
   /// 若用户未触发语音播放就退出应用，`applicationWillTerminate:` 调用
