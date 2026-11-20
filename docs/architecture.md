@@ -298,6 +298,16 @@ flowchart LR
 - **Android**：执行 `flutter build apk --release`，产出原生可安装 APK（`EchoMind-vX.Y.Z-android.apk`）。
 - **发布铁律**：打 `v*` 标签发布新版本时，必须确保三端产物全部上传至 GitHub Release 附件，严禁单端残缺发布。
 
+#### 3. 国内 CDN 镜像加速与多线路容灾兜底（2026-11-20 沉淀）
+- **核心痛点**：国内网络环境下，GitHub Releases 资产下载（几十 MB）经常遭受阻断、重置或百 KB 限速，且 `api.github.com` 检查更新偶发超时。
+- **架构设计**：
+  * **检查更新 API 双通道**：优先官方 API；在遇到 `TimeoutException` 或网络阻断时，自动回退到 `https://gh-proxy.com/` 镜像反代端点，实现亚秒级版本解析。
+  * **安装包下载多线路轮询**：`UpdateConfig.getDownloadCandidateUrls` 动态编排候选源：
+    1. 首选高带宽 CDN 镜像：`https://gh-proxy.com/`（实测单线 7MB/s+）；
+    2. 备用高可用 CDN 镜像：`https://ghproxy.net/`；
+    3. 官方兜底直连：`asset.browserDownloadUrl`。
+  * **流式中断与故障自愈**：任一镜像发生网络错误、非 200 响应或连接中断时，自动清理未完成的 `.part` 文件并透明无感平滑切换至下一镜像源，兼具极致速度与高可用性。
+
 ---
 
 ## 4. 架构不可动摇的底线原则

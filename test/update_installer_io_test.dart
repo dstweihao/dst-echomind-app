@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:echomind_app/data/updates/update_client.dart';
 import 'package:echomind_app/data/updates/update_config.dart';
 import 'package:echomind_app/data/updates/update_installer_io.dart';
 import 'package:echomind_app/domain/models/update_info.dart';
@@ -69,7 +70,10 @@ void main() {
   late _FakeUrlLauncher launcher;
   late Directory tempDir;
 
-  setUpAll(() => registerFallbackValue(http.Request('GET', Uri())));
+  setUpAll(() {
+    registerFallbackValue(http.Request('GET', Uri()));
+    registerFallbackValue(Uri());
+  });
 
   setUp(() {
     httpClient = _MockHttpClient();
@@ -306,5 +310,102 @@ void main() {
     expect(result.outcome, InstallOutcome.launched);
     expect(progress, [1.0]);
     verifyNever(() => httpClient.send(any()));
+  });
+
+  test('UpdateConfig.getDownloadCandidateUrls 为 GitHub 链接自动注入国内 CDN 镜像加速前缀', () {
+    const rawGithubUrl =
+        'https://github.com/dstweihao/dst-echomind-app/releases/download/v1.0.7/EchoMind-v1.0.7-macos.dmg';
+    final candidates = UpdateConfig.getDownloadCandidateUrls(rawGithubUrl);
+
+    expect(candidates, hasLength(UpdateConfig.downloadMirrorPrefixes.length + 1));
+    expect(candidates.first, 'https://gh-proxy.com/$rawGithubUrl');
+    expect(candidates[1], 'https://ghproxy.net/$rawGithubUrl');
+    expect(candidates.last, rawGithubUrl);
+
+    // 非 GitHub 链接原样返回，不增加镜像前缀
+    const otherUrl = 'https://my-bucket.cos.ap-beijing.myqcloud.com/app.dmg';
+    expect(UpdateConfig.getDownloadCandidateUrls(otherUrl), [otherUrl]);
+    expect(UpdateConfig.getDownloadCandidateUrls(''), isEmpty);
+  });
+
+  test('下载安装包：首选镜像失败（502）时无缝自动回退到备用镜像并成功完成下载', () async {
+    const githubUrl =
+        'https://github.com/dstweihao/dst-echomind-app/releases/download/v1.2.0/AbsoluteMoment-1.2.0.dmg';
+    final releaseWithGithubUrl = ReleaseInfo(
+      tagName: 'v1.2.0',
+      htmlUrl: 'https://github.com/dstweihao/dst-echomind-app/releases/tag/v1.2.0',
+      assets: [
+        ReleaseAsset(
+          name: Platform.isMacOS
+              ? 'AbsoluteMoment-1.2.0.dmg'
+              : Platform.isWindows
+                  ? 'AbsoluteMoment-1.2.0.exe'
+                  : 'AbsoluteMoment-1.2.0.AppImage',
+          browserDownloadUrl: githubUrl,
+          size: 6,
+        ),
+      ],
+    );
+
+    // 第一次调用（gh-proxy.com 镜像）：返回 502
+    // 第二次调用（ghproxy.net 镜像）：返回 200 并传输 6 字节数据
+    var callCount = 0;
+    when(() => httpClient.send(any())).thenAnswer((invocation) async {
+      callCount++;
+      final req = invocation.positionalArguments.first as http.BaseRequest;
+      if (callCount == 1) {
+        expect(req.url.toString(), contains('gh-proxy.com'));
+        return http.StreamedResponse(const Stream.empty(), 502);
+      }
+      expect(req.url.toString(), contains('ghproxy.net'));
+      return http.StreamedResponse(
+        Stream.fromIterable([
+          [1, 2, 3],
+          [4, 5, 6],
+        ]),
+        200,
+        contentLength: 6,
+      );
+    });
+
+    final progress = <double?>[];
+    final result = await installUpdate(
+      releaseWithGithubUrl,
+      httpClient: httpClient,
+      onProgress: progress.add,
+    );
+
+    expect(result.outcome, InstallOutcome.launched);
+    expect(result.isSuccess, true);
+    expect(callCount, 2, reason: '第一路镜像挂掉后自动无缝切换到第二路镜像');
+    expect(progress, [0.5, 1.0]);
+  });
+
+  test('UpdateClient 检查更新：官方 API 超时时无缝回退到国内镜像 API 完成解析', () async {
+    final client = UpdateClient(httpClient: httpClient);
+
+    var callCount = 0;
+    when(() => httpClient.get(any(), headers: any(named: 'headers')))
+        .thenAnswer((invocation) async {
+      callCount++;
+      final url = invocation.positionalArguments.first.toString();
+      if (callCount == 1) {
+        // 第一路官方端点模拟超时
+        expect(url, UpdateConfig.latestReleaseUrl);
+        throw TimeoutException('api.github.com timeout');
+      }
+      // 第二路镜像端点模拟成功响应
+      expect(url, contains('gh-proxy.com'));
+      return http.Response(
+        '{"tag_name": "v1.0.8", "name": "v1.0.8", "body": "fix", "html_url": "https://github.com/dstweihao/dst-echomind-app/releases/tag/v1.0.8", "assets": []}',
+        200,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      );
+    });
+
+    final release = await client.checkLatest();
+    expect(release, isNotNull);
+    expect(release!.tagName, 'v1.0.8');
+    expect(callCount, 2, reason: '官方 API 超时后触发镜像反代轮询');
   });
 }

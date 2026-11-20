@@ -180,62 +180,105 @@ Future<String> _downloadToTemp(
     return finalFile.path;
   }
 
-  // 必须流式写盘：安装包动辄几十 MB，整体缓冲会 OOM。
-  // 同时 GitHub 的 download 链接是跨域 302，交给 client 自己跟。
-  final request = http.Request('GET', Uri.parse(asset.browserDownloadUrl))
-    ..followRedirects = true
-    ..maxRedirects = 5;
+  final candidateUrls =
+      UpdateConfig.getDownloadCandidateUrls(asset.browserDownloadUrl);
+  Object? lastError;
 
-  final http.StreamedResponse response;
-  try {
-    response = await client.send(request).timeout(UpdateConfig.downloadTimeout);
-  } on TimeoutException {
-    throw const UpdateException('下载超时，请检查网络后重试');
-  } on http.ClientException {
-    throw const UpdateException('网络中断，下载失败');
-  }
+  for (var i = 0; i < candidateUrls.length; i++) {
+    final candidateUrl = candidateUrls[i];
+    final isLast = i == candidateUrls.length - 1;
 
-  if (response.statusCode != 200) {
-    await response.stream.drain<void>();
-    throw UpdateException('下载失败（HTTP ${response.statusCode}）');
-  }
+    // 必须流式写盘：安装包动辄几十 MB，整体缓冲会 OOM。
+    // 同时 GitHub 的 download 链接是跨域 302，交给 client 自己跟。
+    final request = http.Request('GET', Uri.parse(candidateUrl))
+      ..followRedirects = true
+      ..maxRedirects = 5;
 
-  final partFile = File('${finalFile.path}.part');
-  final sink = partFile.openWrite();
-  final rawTotal = response.contentLength;
-  final total = (rawTotal != null && rawTotal > 0)
-      ? rawTotal
-      : (asset.size > 0 ? asset.size : null);
-  var received = 0;
-  var completed = false;
-
-  try {
-    await for (final chunk in response.stream) {
-      sink.add(chunk);
-      received += chunk.length;
-      onProgress?.call(
-        total == null ? null : (received / total).clamp(0.0, 1.0),
-      );
-      onBytesProgress?.call(received, total);
+    final http.StreamedResponse response;
+    try {
+      response =
+          await client.send(request).timeout(UpdateConfig.downloadTimeout);
+    } on TimeoutException catch (e) {
+      lastError = e;
+      if (isLast) {
+        throw const UpdateException('下载超时，请检查网络后重试');
+      }
+      continue;
+    } on http.ClientException catch (e) {
+      lastError = e;
+      if (isLast) {
+        throw const UpdateException('网络中断，下载失败');
+      }
+      continue;
+    } catch (e) {
+      lastError = e;
+      if (isLast) {
+        throw UpdateException('下载连接失败：$e');
+      }
+      continue;
     }
-    await sink.flush();
-    completed = true;
-  } on TimeoutException {
-    throw const UpdateException('下载超时，请检查网络后重试');
-  } on http.ClientException {
-    throw const UpdateException('网络中断，下载失败');
-  } finally {
-    await sink.close();
-    if (!completed && partFile.existsSync()) {
-      try {
-        await partFile.delete();
-      } catch (_) {}
+
+    if (response.statusCode != 200) {
+      await response.stream.drain<void>();
+      if (isLast) {
+        throw UpdateException('下载失败（HTTP ${response.statusCode}）');
+      }
+      continue;
+    }
+
+    final partFile = File('${finalFile.path}.part');
+    final sink = partFile.openWrite();
+    final rawTotal = response.contentLength;
+    final total = (rawTotal != null && rawTotal > 0)
+        ? rawTotal
+        : (asset.size > 0 ? asset.size : null);
+    var received = 0;
+    var completed = false;
+
+    try {
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        onProgress?.call(
+          total == null ? null : (received / total).clamp(0.0, 1.0),
+        );
+        onBytesProgress?.call(received, total);
+      }
+      await sink.flush();
+      completed = true;
+    } on TimeoutException catch (e) {
+      lastError = e;
+      if (isLast) {
+        throw const UpdateException('下载超时，请检查网络后重试');
+      }
+    } on http.ClientException catch (e) {
+      lastError = e;
+      if (isLast) {
+        throw const UpdateException('网络中断，下载失败');
+      }
+    } catch (e) {
+      lastError = e;
+      if (isLast) {
+        throw UpdateException('下载流中断：$e');
+      }
+    } finally {
+      await sink.close();
+      if (!completed && partFile.existsSync()) {
+        try {
+          await partFile.delete();
+        } catch (_) {}
+      }
+    }
+
+    if (completed) {
+      if (finalFile.existsSync()) {
+        await finalFile.delete();
+      }
+      await partFile.rename(finalFile.path);
+      return finalFile.path;
     }
   }
 
-  if (finalFile.existsSync()) {
-    await finalFile.delete();
-  }
-  await partFile.rename(finalFile.path);
-  return finalFile.path;
+  if (lastError is UpdateException) throw lastError;
+  throw const UpdateException('下载失败，已尝试全部镜像源');
 }

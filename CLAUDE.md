@@ -56,6 +56,11 @@
    - 必须通过 `_disallowedPlatformKeywords()` 严格排除其他操作系统的命名特征（如 macOS 必须强制排除 `win`、`windows`、`linux`、`android`）；
    - 当 Release 中缺少当前平台专属安装包时，必须安全回退至浏览器打开 Release 页面，绝不许错下别家系统的安装包。
 
+3. **国内 CDN 镜像加速与多线路容灾铁律**：
+   - 客户端下载 Release 安装包及检查更新时，严禁单一死守直连官方 GitHub（国内高概率限速或超时）；
+   - 必须遵循 `UpdateConfig.getDownloadCandidateUrls` 与 `UpdateConfig.checkUpdateUrls` 编排的多镜像容灾队列（`gh-proxy.com` -> `ghproxy.net` -> 官方原地址）；
+   - 任何单点镜像异常（5xx/超时/网络阻断）必须透明无感自愈回退至备用线路，兼具满速下载体验与零维护风险。
+
 ---
 
 ## 4. 常用开发与构建命令
