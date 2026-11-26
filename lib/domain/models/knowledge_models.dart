@@ -214,6 +214,8 @@ class ConversationMemory {
   final String rollingSummary;
   final List<StudyMessage> messages;
   final String? focusedDocSlug;
+  final String? activeMasterySlug;
+  final String? contextWindowStartId;
   final int compactionCount;
   final int lastDistilledCount;
   final DateTime updatedAt;
@@ -222,6 +224,8 @@ class ConversationMemory {
     this.rollingSummary = '',
     this.messages = const [],
     this.focusedDocSlug,
+    this.activeMasterySlug,
+    this.contextWindowStartId,
     this.compactionCount = 0,
     this.lastDistilledCount = 0,
     required this.updatedAt,
@@ -245,6 +249,10 @@ class ConversationMemory {
     List<StudyMessage>? messages,
     String? focusedDocSlug,
     bool clearFocusedDoc = false,
+    String? activeMasterySlug,
+    bool clearActiveMastery = false,
+    String? contextWindowStartId,
+    bool clearContextWindowStart = false,
     int? compactionCount,
     int? lastDistilledCount,
     DateTime? updatedAt,
@@ -254,6 +262,12 @@ class ConversationMemory {
       messages: messages ?? this.messages,
       focusedDocSlug:
           clearFocusedDoc ? null : (focusedDocSlug ?? this.focusedDocSlug),
+      activeMasterySlug: clearActiveMastery
+          ? null
+          : (activeMasterySlug ?? this.activeMasterySlug),
+      contextWindowStartId: clearContextWindowStart
+          ? null
+          : (contextWindowStartId ?? this.contextWindowStartId),
       compactionCount: compactionCount ?? this.compactionCount,
       lastDistilledCount: lastDistilledCount ?? this.lastDistilledCount,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -262,6 +276,8 @@ class ConversationMemory {
 
   factory ConversationMemory.fromJson(Map<String, dynamic> json) {
     final rawMsgs = (json['messages'] as List<dynamic>? ?? const []);
+    final rawStartId = (json['context_window_start_id'] as String?)?.trim();
+    final rawMastery = (json['active_mastery_slug'] as String?)?.trim();
     return ConversationMemory(
       rollingSummary: (json['rolling_summary'] ?? '').toString(),
       messages: rawMsgs
@@ -272,6 +288,10 @@ class ConversationMemory {
               true
           ? (json['focused_doc_slug'] as String).trim()
           : null,
+      activeMasterySlug:
+          (rawMastery != null && rawMastery.isNotEmpty) ? rawMastery : null,
+      contextWindowStartId:
+          (rawStartId != null && rawStartId.isNotEmpty) ? rawStartId : null,
       compactionCount: (json['compaction_count'] is num)
           ? (json['compaction_count'] as num).toInt()
           : 0,
@@ -288,8 +308,240 @@ class ConversationMemory {
         'messages': messages.map((m) => m.toJson()).toList(),
         if (focusedDocSlug != null && focusedDocSlug!.isNotEmpty)
           'focused_doc_slug': focusedDocSlug,
+        if (activeMasterySlug != null && activeMasterySlug!.isNotEmpty)
+          'active_mastery_slug': activeMasterySlug,
+        if (contextWindowStartId != null && contextWindowStartId!.isNotEmpty)
+          'context_window_start_id': contextWindowStartId,
         'compaction_count': compactionCount,
         'last_distilled_count': lastDistilledCount,
+        'updated_at': updatedAt.toIso8601String(),
+      };
+}
+
+/// 学科精通等级（L1 入门 → L2 进阶 → L3 高级 → L4 专家）
+enum MasteryLevel {
+  beginner('L1 入门', 1),
+  intermediate('L2 进阶', 2),
+  advanced('L3 高级', 3),
+  expert('L4 专家', 4);
+
+  final String label;
+  final int rank;
+
+  const MasteryLevel(this.label, this.rank);
+
+  static MasteryLevel fromString(String? raw) {
+    final lower = (raw ?? '').trim().toLowerCase();
+    return switch (lower) {
+      'intermediate' || 'l2' => MasteryLevel.intermediate,
+      'advanced' || 'l3' => MasteryLevel.advanced,
+      'expert' || 'l4' => MasteryLevel.expert,
+      _ => MasteryLevel.beginner,
+    };
+  }
+}
+
+/// 动态路线图节点状态
+enum RoadmapNodeStatus {
+  pending('待学'),
+  active('当前聚焦'),
+  mastered('已掌握'),
+  skipped('已会跳过');
+
+  final String label;
+
+  const RoadmapNodeStatus(this.label);
+
+  bool get isCompleted =>
+      this == RoadmapNodeStatus.mastered || this == RoadmapNodeStatus.skipped;
+
+  static RoadmapNodeStatus fromString(String? raw) {
+    final lower = (raw ?? '').trim().toLowerCase();
+    return switch (lower) {
+      'active' => RoadmapNodeStatus.active,
+      'mastered' => RoadmapNodeStatus.mastered,
+      'skipped' => RoadmapNodeStatus.skipped,
+      _ => RoadmapNodeStatus.pending,
+    };
+  }
+}
+
+/// 动态路线图中的单个知识关卡
+class RoadmapNode {
+  final String id;
+  final String title;
+  final MasteryLevel level;
+  final RoadmapNodeStatus status;
+  final String focusGoal;
+  final String reason;
+
+  const RoadmapNode({
+    required this.id,
+    required this.title,
+    required this.level,
+    this.status = RoadmapNodeStatus.pending,
+    this.focusGoal = '',
+    this.reason = '',
+  });
+
+  RoadmapNode copyWith({
+    String? id,
+    String? title,
+    MasteryLevel? level,
+    RoadmapNodeStatus? status,
+    String? focusGoal,
+    String? reason,
+  }) {
+    return RoadmapNode(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      level: level ?? this.level,
+      status: status ?? this.status,
+      focusGoal: focusGoal ?? this.focusGoal,
+      reason: reason ?? this.reason,
+    );
+  }
+
+  factory RoadmapNode.fromJson(Map<String, dynamic> json) {
+    return RoadmapNode(
+      id: (json['id'] ?? '').toString().trim(),
+      title: (json['title'] ?? '').toString().trim(),
+      level: MasteryLevel.fromString(json['level']?.toString()),
+      status: RoadmapNodeStatus.fromString(json['status']?.toString()),
+      focusGoal: (json['focus_goal'] ?? '').toString().trim(),
+      reason: (json['reason'] ?? '').toString().trim(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'level': level.name,
+        'status': status.name,
+        if (focusGoal.isNotEmpty) 'focus_goal': focusGoal,
+        if (reason.isNotEmpty) 'reason': reason,
+      };
+}
+
+/// 单个学科/专题的自适应能力画像与动态路线图
+class MasteryProfile {
+  final String slug;
+  final String subjectName;
+  final String targetGoal;
+  final MasteryLevel level;
+  final int score;
+  final double confidence;
+  final List<String> strengths;
+  final List<String> weaknesses;
+  final List<RoadmapNode> roadmap;
+  final int lastCalibratedCount;
+  final DateTime updatedAt;
+
+  const MasteryProfile({
+    required this.slug,
+    required this.subjectName,
+    this.targetGoal = '',
+    this.level = MasteryLevel.beginner,
+    this.score = 0,
+    this.confidence = 0.2,
+    this.strengths = const [],
+    this.weaknesses = const [],
+    this.roadmap = const [],
+    this.lastCalibratedCount = 0,
+    required this.updatedAt,
+  });
+
+  RoadmapNode? get activeNode {
+    for (final n in roadmap) {
+      if (n.status == RoadmapNodeStatus.active) return n;
+    }
+    for (final n in roadmap) {
+      if (n.status == RoadmapNodeStatus.pending) return n;
+    }
+    return null;
+  }
+
+  int get completedNodesCount =>
+      roadmap.where((n) => n.status.isCompleted).length;
+
+  double get roadmapProgress =>
+      roadmap.isEmpty ? 0.0 : completedNodesCount / roadmap.length;
+
+  MasteryProfile copyWith({
+    String? slug,
+    String? subjectName,
+    String? targetGoal,
+    MasteryLevel? level,
+    int? score,
+    double? confidence,
+    List<String>? strengths,
+    List<String>? weaknesses,
+    List<RoadmapNode>? roadmap,
+    int? lastCalibratedCount,
+    DateTime? updatedAt,
+  }) {
+    return MasteryProfile(
+      slug: slug ?? this.slug,
+      subjectName: subjectName ?? this.subjectName,
+      targetGoal: targetGoal ?? this.targetGoal,
+      level: level ?? this.level,
+      score: score ?? this.score,
+      confidence: confidence ?? this.confidence,
+      strengths: strengths ?? this.strengths,
+      weaknesses: weaknesses ?? this.weaknesses,
+      roadmap: roadmap ?? this.roadmap,
+      lastCalibratedCount: lastCalibratedCount ?? this.lastCalibratedCount,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  factory MasteryProfile.fromJson(Map<String, dynamic> json) {
+    final rawRoadmap = json['roadmap'] as List<dynamic>? ?? const [];
+    final rawStrengths = json['strengths'] as List<dynamic>? ?? const [];
+    final rawWeaknesses = json['weaknesses'] as List<dynamic>? ?? const [];
+    return MasteryProfile(
+      slug: KnowledgeEntry.normalizeSlug((json['slug'] ?? 'general').toString()),
+      subjectName: (json['subject_name'] ?? '').toString().trim(),
+      targetGoal: (json['target_goal'] ?? '').toString().trim(),
+      level: MasteryLevel.fromString(json['level']?.toString()),
+      score: (json['score'] is num)
+          ? (json['score'] as num).toInt().clamp(0, 100)
+          : 0,
+      confidence: (json['confidence'] is num)
+          ? (json['confidence'] as num).toDouble().clamp(0.0, 1.0)
+          : 0.2,
+      strengths: rawStrengths
+          .map((e) => e.toString().trim())
+          .where((s) => s.isNotEmpty)
+          .toList(),
+      weaknesses: rawWeaknesses
+          .map((e) => e.toString().trim())
+          .where((s) => s.isNotEmpty)
+          .toList(),
+      roadmap: rawRoadmap
+          .whereType<Map>()
+          .map((e) => RoadmapNode.fromJson(e.cast<String, dynamic>()))
+          .where((n) => n.title.isNotEmpty)
+          .toList(),
+      lastCalibratedCount: (json['last_calibrated_count'] is num)
+          ? (json['last_calibrated_count'] as num).toInt()
+          : 0,
+      updatedAt: DateTime.tryParse((json['updated_at'] ?? '').toString()) ??
+          DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'slug': slug,
+        'subject_name': subjectName,
+        if (targetGoal.isNotEmpty) 'target_goal': targetGoal,
+        'level': level.name,
+        'score': score,
+        'confidence': confidence,
+        'strengths': strengths,
+        'weaknesses': weaknesses,
+        'roadmap': roadmap.map((n) => n.toJson()).toList(),
+        'last_calibrated_count': lastCalibratedCount,
         'updated_at': updatedAt.toIso8601String(),
       };
 }

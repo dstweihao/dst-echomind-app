@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/ai/ai_client.dart';
 import '../../data/ai/context_compactor.dart';
 import '../../data/ai/deepseek_ocr_client.dart';
+import '../../data/ai/knowledge_organizer.dart';
+import '../../data/ai/mastery_calibrator.dart';
 import '../../data/ai/prompts/study_mode_prompt.dart';
 import '../../data/ai/sensitive_content_guard.dart';
 import '../../data/attachments/attachment_picker_service.dart';
@@ -40,6 +42,13 @@ class StudyChatState {
   final String? focusedDocTitle;
   final String? focusedDocContent;
 
+  /// 各学科的隐式精通能力画像（完全无感，后台持续评估校准）
+  final Map<String, MasteryProfile> masteryProfiles;
+  final String? activeMasterySlug;
+
+  /// 发给大模型的滑动窗口起点消息 ID（该标记之后才进入 wireMessages，之前消息保留在界面但不再耗费上下文）
+  final String? contextWindowStartId;
+
   final int compactionCount;
   final int lastDistilledCount;
   final bool isCompacting;
@@ -64,6 +73,9 @@ class StudyChatState {
     this.focusedDocSlug,
     this.focusedDocTitle,
     this.focusedDocContent,
+    this.masteryProfiles = const {},
+    this.activeMasterySlug,
+    this.contextWindowStartId,
     this.compactionCount = 0,
     this.lastDistilledCount = 0,
     this.isCompacting = false,
@@ -86,9 +98,32 @@ class StudyChatState {
   bool get isTranscribing => voicePhase == VoiceInputPhase.transcribing;
   bool get hasConversation => messages.isNotEmpty || streamingText.isNotEmpty;
 
-  /// 参与上下文的有效对话消息
+  /// 界面展示与总对话计数用的有效对话消息
   List<StudyMessage> get conversationalMessages =>
       messages.where((m) => !m.isCompactionNotice).toList();
+
+  /// 实际发给大模型 API 的活跃上下文窗口（已归纳进前文摘要的历史不再重复发原文）
+  List<StudyMessage> get activeLlmMessages {
+    final startId = contextWindowStartId;
+    if (startId == null || startId.isEmpty) {
+      return conversationalMessages;
+    }
+    final idx = messages.indexWhere((m) => m.id == startId);
+    if (idx == -1) {
+      return conversationalMessages;
+    }
+    return messages
+        .sublist(idx + 1)
+        .where((m) => !m.isCompactionNotice)
+        .toList();
+  }
+
+  /// 当前激活的学科精通画像（供后台静默评估与分阶引导，不在 UI 造成打扰）
+  MasteryProfile? get activeMastery {
+    final slug = activeMasterySlug;
+    if (slug == null || slug.isEmpty) return null;
+    return masteryProfiles[slug];
+  }
 
   /// 总已沉淀知识点条数
   int get totalKnowledgeTopics =>
@@ -103,6 +138,11 @@ class StudyChatState {
     String? focusedDocTitle,
     String? focusedDocContent,
     bool clearFocusedDoc = false,
+    Map<String, MasteryProfile>? masteryProfiles,
+    String? activeMasterySlug,
+    bool clearActiveMastery = false,
+    String? contextWindowStartId,
+    bool clearContextWindowStart = false,
     int? compactionCount,
     int? lastDistilledCount,
     bool? isCompacting,
@@ -134,6 +174,13 @@ class StudyChatState {
       focusedDocContent: clearFocusedDoc
           ? null
           : (focusedDocContent ?? this.focusedDocContent),
+      masteryProfiles: masteryProfiles ?? this.masteryProfiles,
+      activeMasterySlug: clearActiveMastery
+          ? null
+          : (activeMasterySlug ?? this.activeMasterySlug),
+      contextWindowStartId: clearContextWindowStart
+          ? null
+          : (contextWindowStartId ?? this.contextWindowStartId),
       compactionCount: compactionCount ?? this.compactionCount,
       lastDistilledCount: lastDistilledCount ?? this.lastDistilledCount,
       isCompacting: isCompacting ?? this.isCompacting,
@@ -184,10 +231,12 @@ class StudyChatController extends Notifier<StudyChatState> {
   Future<void> _hydrate() async {
     final convRepo = ref.read(conversationRepositoryProvider);
     final kbRepo = ref.read(knowledgeRepositoryProvider);
+    final masteryRepo = ref.read(masteryRepositoryProvider);
 
     final memory = await convRepo.load();
     final indexMd = await kbRepo.readIndexMarkdown();
     final docs = await kbRepo.listDocs();
+    final profiles = await masteryRepo.loadAllProfiles();
 
     String? focusedTitle;
     String? focusedBody;
@@ -200,15 +249,27 @@ class StudyChatController extends Notifier<StudyChatState> {
       }
     }
 
+    final resolvedMasterySlug =
+        state.activeMasterySlug ?? memory.activeMasterySlug;
+
     if (!ref.mounted) return;
     state = state.copyWith(
-      messages: memory.messages,
-      rollingSummary: memory.rollingSummary,
+      messages: state.messages.isEmpty ? memory.messages : state.messages,
+      rollingSummary: state.rollingSummary.isEmpty
+          ? memory.rollingSummary
+          : state.rollingSummary,
       knowledgeIndex: indexMd,
       knowledgeDocs: docs,
       focusedDocSlug: focusedTitle != null ? memory.focusedDocSlug : null,
       focusedDocTitle: focusedTitle,
       focusedDocContent: focusedBody,
+      masteryProfiles: profiles,
+      activeMasterySlug:
+          (resolvedMasterySlug != null && profiles.containsKey(resolvedMasterySlug))
+              ? resolvedMasterySlug
+              : null,
+      contextWindowStartId:
+          state.contextWindowStartId ?? memory.contextWindowStartId,
       compactionCount: memory.compactionCount,
       lastDistilledCount: memory.lastDistilledCount,
       hydrated: true,
@@ -244,6 +305,8 @@ class StudyChatController extends Notifier<StudyChatState> {
       focusedDocSlug: doc.slug,
       focusedDocTitle: doc.categoryName,
       focusedDocContent: body,
+      activeMasterySlug:
+          state.masteryProfiles.containsKey(doc.slug) ? doc.slug : null,
       clearError: true,
     );
     await _persistMemory();
@@ -253,6 +316,100 @@ class StudyChatController extends Notifier<StudyChatState> {
     );
   }
 
+  /// 后台静默生成或加载指定学科的自适应精通画像（完全无感，不向 UI 抛噪音）
+  Future<void> _ensureMasteryProfileSilently(
+    String rawRequest,
+    AiClient client,
+  ) async {
+    try {
+      final kbRepo = ref.read(knowledgeRepositoryProvider);
+      final masteryRepo = ref.read(masteryRepositoryProvider);
+      final calibrator = ref.read(masteryCalibratorProvider);
+
+      // 优先匹配已有的专题文档（如 docs/cpp.md）以便继承历史沉淀笔记
+      final lowerReq = rawRequest.toLowerCase();
+      KnowledgeDocSummary? matchedDoc;
+      for (final d in state.knowledgeDocs) {
+        if (lowerReq.contains(d.categoryName.toLowerCase()) ||
+            lowerReq.contains(d.slug.toLowerCase())) {
+          matchedDoc = d;
+          break;
+        }
+      }
+
+      if (matchedDoc != null && state.masteryProfiles.containsKey(matchedDoc.slug)) {
+        state = state.copyWith(activeMasterySlug: matchedDoc.slug);
+        await _persistMemory();
+        return;
+      }
+
+      final existingMd = matchedDoc != null
+          ? await kbRepo.readDocMarkdown(matchedDoc.slug)
+          : '';
+      final profile = await calibrator.generateInitialRoadmap(
+        aiClient: client,
+        subjectName: matchedDoc?.categoryName ?? rawRequest,
+        slug: matchedDoc?.slug,
+        targetGoal: rawRequest,
+        existingDocMarkdown: existingMd,
+        recentMessages: state.conversationalMessages,
+        currentTotalConversationalCount:
+            (state.conversationalMessages.length - 1).clamp(0, 1 << 30),
+      );
+      if (!ref.mounted) return;
+
+      await masteryRepo.saveProfile(profile);
+      final nextMap = Map<String, MasteryProfile>.from(state.masteryProfiles);
+      nextMap[profile.slug] = profile;
+      state = state.copyWith(
+        masteryProfiles: nextMap,
+        activeMasterySlug: profile.slug,
+      );
+      await _persistMemory();
+    } catch (e) {
+      debugPrint('Silent mastery initialization skipped: $e');
+    }
+  }
+
+  /// 后台静默每 2 轮校准一次用户当前水平与路线图（完全无感）
+  Future<void> _calibrateMasteryQuietlyInBackground() async {
+    final active = state.activeMastery;
+    if (active == null || state.isGenerating) return;
+    final client = ref.read(aiClientProvider);
+    if (client == null) return;
+
+    final conv = state.conversationalMessages;
+    final calibrator = ref.read(masteryCalibratorProvider);
+    if (!calibrator.shouldAutoCalibrate(
+      state.messages,
+      activeProfile: active,
+    )) {
+      return;
+    }
+
+    try {
+      final kbRepo = ref.read(knowledgeRepositoryProvider);
+      final masteryRepo = ref.read(masteryRepositoryProvider);
+      final docMd = await kbRepo.readDocMarkdown(active.slug);
+
+      final outcome = await calibrator.calibrateFromRecentTurns(
+        aiClient: client,
+        currentProfile: active,
+        recentMessages: conv,
+        knowledgeDocMarkdown: docMd,
+        currentTotalConversationalCount: conv.length,
+      );
+      if (!ref.mounted) return;
+
+      await masteryRepo.saveProfile(outcome.profile);
+      final nextMap = Map<String, MasteryProfile>.from(state.masteryProfiles);
+      nextMap[outcome.profile.slug] = outcome.profile;
+      state = state.copyWith(masteryProfiles: nextMap);
+    } catch (e) {
+      debugPrint('Silent mastery calibration skipped: $e');
+    }
+  }
+
   /// 取消当前挂载的专题复习上下文
   Future<void> clearFocusedDoc() async {
     if (state.focusedDocSlug == null) return;
@@ -260,12 +417,305 @@ class StudyChatController extends Notifier<StudyChatState> {
     await _persistMemory();
   }
 
-  /// 手动一键「沉淀并压缩」当前对话
-  Future<bool> compactAndDistillNow({bool isAuto = false}) async {
-    if (state.isCompacting || state.isGenerating) return false;
+  /// 手动新建知识库专题
+  Future<KnowledgeDocSummary?> createTopic({
+    required String title,
+    String? slug,
+    String? markdown,
+  }) async {
+    try {
+      final kbRepo = ref.read(knowledgeRepositoryProvider);
+      final created = await kbRepo.createTopic(
+        title: title,
+        slug: slug,
+        markdown: markdown,
+      );
+      await refreshKnowledgeBase();
+      return created;
+    } catch (e) {
+      if (ref.mounted) {
+        state = state.copyWith(
+          errorMessage: e is StateError ? e.message : '新建专题失败：$e',
+        );
+      }
+      return null;
+    }
+  }
+
+  /// 手动保存专题文档全文并同步刷新索引
+  Future<bool> saveDocContent({
+    required String slug,
+    required String markdown,
+  }) async {
+    try {
+      final kbRepo = ref.read(knowledgeRepositoryProvider);
+      await kbRepo.saveDocMarkdown(slug: slug, markdown: markdown);
+      final updatedIndex = await kbRepo.readIndexMarkdown();
+      final updatedDocs = await kbRepo.listDocs();
+      if (!ref.mounted) return false;
+
+      final safeSlug = KnowledgeEntry.normalizeSlug(slug);
+      final isFocused = state.focusedDocSlug == safeSlug;
+      final matched = updatedDocs.where((d) => d.slug == safeSlug).firstOrNull;
+      final refreshedBody =
+          isFocused ? await kbRepo.readDocMarkdown(safeSlug) : null;
+      if (!ref.mounted) return false;
+
+      state = state.copyWith(
+        knowledgeIndex: updatedIndex,
+        knowledgeDocs: updatedDocs,
+        focusedDocTitle: isFocused ? matched?.categoryName : null,
+        focusedDocContent: isFocused ? refreshedBody : null,
+      );
+      return true;
+    } catch (e) {
+      if (ref.mounted) {
+        state = state.copyWith(errorMessage: '保存专题失败：$e');
+      }
+      return false;
+    }
+  }
+
+  /// 手动删除专题文档并同步刷新索引
+  Future<bool> deleteDoc(String slug) async {
+    try {
+      final kbRepo = ref.read(knowledgeRepositoryProvider);
+      final safeSlug = KnowledgeEntry.normalizeSlug(slug);
+      await kbRepo.deleteDoc(safeSlug);
+      final updatedIndex = await kbRepo.readIndexMarkdown();
+      final updatedDocs = await kbRepo.listDocs();
+      if (!ref.mounted) return false;
+
+      final wasFocused = state.focusedDocSlug == safeSlug;
+      state = state.copyWith(
+        knowledgeIndex: updatedIndex,
+        knowledgeDocs: updatedDocs,
+        clearFocusedDoc: wasFocused,
+      );
+      if (wasFocused) {
+        await _persistMemory();
+      }
+      return true;
+    } catch (e) {
+      if (ref.mounted) {
+        state = state.copyWith(errorMessage: '删除专题失败：$e');
+      }
+      return false;
+    }
+  }
+
+  /// 通过 AI 直接执行知识库专题新增、拆分或整理落盘
+  Future<KnowledgeOrganizeResult?> organizeKnowledgeBase(
+    String instruction, {
+    bool appendAssistantReply = true,
+  }) async {
+    final trimmed = instruction.trim();
+    if (trimmed.isEmpty) return null;
+
+    final client = ref.read(aiClientProvider);
+    if (client == null) {
+      state = state.copyWith(errorMessage: '请先配置 DeepSeek API Key 以整理知识库');
+      return null;
+    }
+
+    state = state.copyWith(
+      isGenerating: true,
+      clearError: true,
+      statusBanner: '正在整理知识库专题…',
+    );
+
+    try {
+      final result = await _executeKnowledgeOrganize(
+        instruction: trimmed,
+        client: client,
+        appendAssistantReply: appendAssistantReply,
+      );
+      return result;
+    } catch (e) {
+      if (!ref.mounted) return null;
+      state = state.copyWith(
+        isGenerating: false,
+        clearStatusBanner: true,
+        errorMessage: '整理知识库失败：$e',
+      );
+      return null;
+    }
+  }
+
+  Future<KnowledgeOrganizeResult> _executeKnowledgeOrganize({
+    required String instruction,
+    required AiClient client,
+    required bool appendAssistantReply,
+  }) async {
+    final kbRepo = ref.read(knowledgeRepositoryProvider);
+    final convRepo = ref.read(conversationRepositoryProvider);
+    final organizer = ref.read(knowledgeOrganizerProvider);
+
+    final allDocs = await kbRepo.readAllDocsMarkdown();
+    final currentIndex = await kbRepo.readIndexMarkdown();
+
+    final plan = await organizer.plan(
+      aiClient: client,
+      instruction: instruction,
+      knowledgeIndex: currentIndex,
+      allDocs: allDocs,
+      recentMessages: state.conversationalMessages,
+    );
+
+    final result = await organizer.applyPlan(
+      repository: kbRepo,
+      plan: plan,
+    );
+
+    final updatedIndex = await kbRepo.readIndexMarkdown();
+    final updatedDocs = await kbRepo.listDocs();
+    if (!ref.mounted) return result;
+
+    String? refreshedTitle;
+    String? refreshedBody;
+    var clearFocused = false;
+    final focusedSlug = state.focusedDocSlug;
+    if (focusedSlug != null) {
+      if (result.deletedSlugs.contains(focusedSlug)) {
+        clearFocused = true;
+      } else if (result.touchedSlugs.contains(focusedSlug)) {
+        final matched =
+            updatedDocs.where((d) => d.slug == focusedSlug).firstOrNull;
+        refreshedTitle = matched?.categoryName;
+        refreshedBody = await kbRepo.readDocMarkdown(focusedSlug);
+      }
+    }
+
+    if (!ref.mounted) return result;
+
+    state = state.copyWith(
+      isGenerating: false,
+      clearStatusBanner: true,
+      knowledgeIndex: updatedIndex,
+      knowledgeDocs: updatedDocs,
+      focusedDocTitle: refreshedTitle,
+      focusedDocContent: refreshedBody,
+      clearFocusedDoc: clearFocused,
+    );
+
+    final toAppend = <StudyMessage>[];
+    if (result.touchedSlugs.isNotEmpty || result.deletedSlugs.isNotEmpty) {
+      toAppend.add(
+        StudyMessage(
+          id: convRepo.nextMessageId(),
+          role: StudyMessageRole.system,
+          content: result.summaryLine(),
+          createdAt: DateTime.now(),
+          isCompactionNotice: true,
+        ),
+      );
+    }
+
+    StudyMessage? replyMsg;
+    if (appendAssistantReply && result.reply.isNotEmpty) {
+      replyMsg = StudyMessage(
+        id: convRepo.nextMessageId(),
+        role: StudyMessageRole.assistant,
+        content: result.reply,
+        createdAt: DateTime.now(),
+      );
+      toAppend.add(replyMsg);
+    }
+
+    if (toAppend.isNotEmpty) {
+      await _appendMessages(toAppend);
+    }
+
+    if (replyMsg != null) {
+      final settings = ref.read(aiSettingsProvider);
+      final ttsClient = ref.read(deepSeekTtsClientProvider);
+      if (settings.autoPlayTts && ttsClient != null) {
+        unawaited(
+          _playViaHttp(
+            text: replyMsg.content,
+            messageId: replyMsg.id,
+            voiceId: settings.ttsVoiceId,
+          ),
+        );
+      }
+    }
+
+    return result;
+  }
+
+  /// 手动一键「沉淀知识」（仅提炼知识点写入 `KNOWLEDGE.md` 与 `docs/`，完整保留对话框里的全部历史记录）
+  Future<int?> distillNow() async {
+    if (state.isCompacting || state.isGenerating) return null;
 
     final active = state.conversationalMessages;
     if (active.length < 2) {
+      state = state.copyWith(errorMessage: '至少先聊完 1 轮再做知识沉淀哦');
+      return null;
+    }
+
+    final client = ref.read(aiClientProvider);
+    if (client == null) {
+      state = state.copyWith(errorMessage: '请先配置 DeepSeek API Key 以执行知识沉淀');
+      return null;
+    }
+
+    final startIdx = state.lastDistilledCount < active.length
+        ? state.lastDistilledCount
+        : (active.length > 6 ? active.length - 6 : 0);
+    final slice = active.sublist(startIdx);
+    final newWatermark = active.length;
+
+    state = state.copyWith(
+      isCompacting: true,
+      clearError: true,
+      statusBanner: '正在提炼知识点到 KNOWLEDGE.md 与 docs/…',
+    );
+
+    try {
+      final compactor = ref.read(contextCompactorProvider);
+      final result = await compactor.compact(
+        aiClient: client,
+        previousSummary: state.rollingSummary,
+        existingKnowledgeIndex: state.knowledgeIndex,
+        messagesToCompact: slice,
+      );
+      if (!ref.mounted) return null;
+
+      final kbRepo = ref.read(knowledgeRepositoryProvider);
+      if (result.entries.isNotEmpty) {
+        await kbRepo.appendEntries(result.entries);
+      }
+      final updatedIndex = await kbRepo.readIndexMarkdown();
+      final updatedDocs = await kbRepo.listDocs();
+
+      state = state.copyWith(
+        knowledgeIndex: updatedIndex,
+        knowledgeDocs: updatedDocs,
+        lastDistilledCount: newWatermark,
+        isCompacting: false,
+        clearStatusBanner: true,
+      );
+
+      await _persistMemory();
+      return result.entries.length;
+    } catch (e) {
+      debugPrint('Distill failed: $e');
+      if (!ref.mounted) return null;
+      state = state.copyWith(
+        isCompacting: false,
+        clearStatusBanner: true,
+        errorMessage: '沉淀失败，原对话已完整保留：$e',
+      );
+      return null;
+    }
+  }
+
+  /// 归纳工作记忆摘要并推进大模型滑动窗口（完整保留界面上的历史气泡不删减）
+  Future<bool> compactAndDistillNow({bool isAuto = false}) async {
+    if (state.isCompacting || state.isGenerating) return false;
+
+    final window = state.activeLlmMessages;
+    if (window.length < 2) {
       if (!isAuto) {
         state = state.copyWith(errorMessage: '至少先聊完 1 轮再做知识沉淀哦');
       }
@@ -280,21 +730,22 @@ class StudyChatController extends Notifier<StudyChatState> {
       return false;
     }
 
-    // 保留最近几条工作记忆，把更早的旧对话沉淀并压缩；若手动触发且条数较少，则至少保留最后 2 条
+    // 活跃上下文窗口保留最近几条原话，更早部分归纳进前文摘要（但界面气泡依然完整保留）
     final keepCount = isAuto
         ? ContextCompactor.keepRecentMessages
-        : (active.length > 4 ? 2 : 0);
+        : (window.length > 6 ? 6 : 0);
     final splitIndex =
-        (active.length - keepCount).clamp(1, active.length);
-    final toCompact = active.sublist(0, splitIndex);
-    final compactedIds = toCompact.map((m) => m.id).toSet();
+        (window.length - keepCount).clamp(1, window.length);
+    final toCompact = window.sublist(0, splitIndex);
+    final anchorId =
+        splitIndex < window.length ? window[splitIndex].id : null;
 
     state = state.copyWith(
       isCompacting: true,
       clearError: true,
       statusBanner: isAuto
-          ? '对话达到上下文上限，正在后台沉淀知识并压缩上下文…'
-          : '正在提炼知识点到 KNOWLEDGE.md 与 docs/ …',
+          ? '正在后台归纳前文摘要以保持最佳对话上下文…'
+          : '正在提炼知识点并归纳工作记忆摘要…',
     );
 
     try {
@@ -317,8 +768,8 @@ class StudyChatController extends Notifier<StudyChatState> {
 
       final convRepo = ref.read(conversationRepositoryProvider);
       final noticeText = result.entries.isNotEmpty
-          ? '已压缩 ${result.compactedMessageCount} 条对话，并沉淀 ${result.entries.length} 个知识点至 KNOWLEDGE.md 及 ${result.entries.map((e) => 'docs/${e.categorySlug}.md').toSet().join('、')}'
-          : '已将 ${result.compactedMessageCount} 条前文对话压缩为工作记忆摘要，继续畅聊吧';
+          ? '已将 ${result.compactedMessageCount} 条前文归纳为工作记忆摘要，并沉淀 ${result.entries.length} 个知识点（上方历史可继续翻阅）'
+          : '已将 ${result.compactedMessageCount} 条前文归纳为工作记忆摘要（上方历史可继续翻阅）';
 
       final noticeMsg = StudyMessage(
         id: convRepo.nextMessageId(),
@@ -328,18 +779,47 @@ class StudyChatController extends Notifier<StudyChatState> {
         isCompactionNotice: true,
       );
 
-      // 仅移除本次已压缩的旧消息，完整保留压缩期间用户新发的任何对话
-      final remaining = state.messages
-          .where((m) => !m.isCompactionNotice && !compactedIds.contains(m.id))
+      // 保留所有聊天记录，仅移除旧的“工作记忆摘要”分隔条并把新分隔条插在活跃窗口起点处
+      final cleaned = state.messages
+          .where((m) => !(m.isCompactionNotice && m.content.contains('工作记忆摘要')))
           .toList();
 
+      final insertAt = anchorId != null
+          ? cleaned.indexWhere((m) => m.id == anchorId)
+          : -1;
+      if (insertAt >= 0) {
+        cleaned.insert(insertAt, noticeMsg);
+      } else {
+        cleaned.add(noticeMsg);
+      }
+
+      // 计算本次已覆盖到 conversationalMessages 的哪一条，更新沉淀水位线
+      final lastCompactedId = toCompact.last.id;
+      final convList = cleaned.where((m) => !m.isCompactionNotice).toList();
+      final compactedEndIdx =
+          convList.indexWhere((m) => m.id == lastCompactedId);
+      final minDistilled = compactedEndIdx >= 0
+          ? compactedEndIdx + 1
+          : state.lastDistilledCount;
+      final nextDistilled = state.lastDistilledCount > minDistilled
+          ? state.lastDistilledCount
+          : minDistilled;
+
+      final capped = _trimToDisplayCap(
+        cleaned,
+        lastDistilledCount: nextDistilled,
+        contextWindowStartId: noticeMsg.id,
+      );
+
       state = state.copyWith(
-        messages: [noticeMsg, ...remaining],
+        messages: capped.messages,
         rollingSummary: result.rollingSummary,
         knowledgeIndex: updatedIndex,
         knowledgeDocs: updatedDocs,
+        contextWindowStartId: capped.contextWindowStartId,
+        clearContextWindowStart: capped.clearContextWindowStart,
         compactionCount: state.compactionCount + 1,
-        lastDistilledCount: remaining.length,
+        lastDistilledCount: capped.lastDistilledCount,
         isCompacting: false,
         clearStatusBanner: true,
       );
@@ -352,7 +832,7 @@ class StudyChatController extends Notifier<StudyChatState> {
       state = state.copyWith(
         isCompacting: false,
         clearStatusBanner: true,
-        errorMessage: isAuto ? null : '沉淀压缩失败，原对话已完整保留：$e',
+        errorMessage: isAuto ? null : '归纳摘要失败，原对话已完整保留：$e',
       );
       return false;
     }
@@ -626,6 +1106,15 @@ class StudyChatController extends Notifier<StudyChatState> {
     state = state.copyWith(pendingAttachments: const []);
     await _appendMessages([userMsg]);
 
+    if (KnowledgeOrganizer.looksLikeKnowledgeWriteRequest(text)) {
+      await organizeKnowledgeBase(text);
+      return;
+    }
+
+    if (MasteryCalibrator.looksLikeStartMasteryRequest(text)) {
+      await _ensureMasteryProfileSilently(text, client);
+    }
+
     state = state.copyWith(
       isGenerating: true,
       streamingText: '',
@@ -670,12 +1159,13 @@ class StudyChatController extends Notifier<StudyChatState> {
       rollingSummary: state.rollingSummary,
       focusedDocTitle: state.focusedDocTitle,
       focusedDocContent: state.focusedDocContent,
+      activeMasteryProfile: state.activeMastery,
       webSearchEnabled: settings.enableWebSearch && settings.isDeepSeekEndpoint,
     );
 
     final wireMessages = await _buildWireMessages(
       sysPrompt,
-      state.conversationalMessages,
+      state.activeLlmMessages,
     );
 
     try {
@@ -734,7 +1224,18 @@ class StudyChatController extends Notifier<StudyChatState> {
         onDone: () async {
           if (!ref.mounted) return;
           llmCompleted = true;
-          final fullReply = state.streamingText.trim();
+          final rawReply = state.streamingText.trim();
+          final kbActionMatch = RegExp(
+            r'\[KB_ACTION:\s*([^\]]+)\]',
+            caseSensitive: false,
+          ).firstMatch(rawReply);
+          final kbAction = kbActionMatch?.group(1)?.trim();
+          final fullReply = rawReply
+              .replaceAll(
+                RegExp(r'\s*\[KB_ACTION:\s*[^\]]+\]', caseSensitive: false),
+                '',
+              )
+              .trim();
           completedReply = fullReply;
           String? savedId;
 
@@ -770,7 +1271,17 @@ class StudyChatController extends Notifier<StudyChatState> {
                 ),
               );
             } else {
-              final tailChunks = chunker.flush();
+              final tailChunks = chunker
+                  .flush()
+                  .map((p) => p
+                      .replaceAll(
+                        RegExp(r'\s*\[KB_ACTION:\s*[^\]]+\]',
+                            caseSensitive: false),
+                        '',
+                      )
+                      .trim())
+                  .where((p) => p.isNotEmpty)
+                  .toList();
               if (wsReady && _activeTtsSession != null) {
                 for (final piece in tailChunks) {
                   _activeTtsSession!.sendText(piece);
@@ -784,15 +1295,34 @@ class StudyChatController extends Notifier<StudyChatState> {
             await stopPlayback();
           }
 
-          // 回复结束后自动沉淀为主：触及上限时自动沉淀+压缩；未达上限但满 3 轮时静默自动沉淀知识点
+          if (kbAction != null && kbAction.isNotEmpty) {
+            unawaited(
+              organizeKnowledgeBase(
+                kbAction,
+                appendAssistantReply: false,
+              ),
+            );
+            return;
+          }
+
+          // 回复结束后：活跃窗口触及上限时后台归纳摘要（不清屏）；每满 3 轮未沉淀新对话时静默沉淀
           final compactor = ref.read(contextCompactorProvider);
-          if (compactor.shouldAutoCompact(state.messages)) {
+          if (compactor.shouldAutoCompact(state.activeLlmMessages)) {
             unawaited(compactAndDistillNow(isAuto: true));
           } else if (compactor.shouldAutoDistill(
             state.messages,
             lastDistilledCount: state.lastDistilledCount,
           )) {
             unawaited(_distillQuietlyInBackground());
+          }
+
+          // 若处于某学科自适应学习中，每满 2 轮后台静默校准水平与路线（用户无感）
+          final calibrator = ref.read(masteryCalibratorProvider);
+          if (calibrator.shouldAutoCalibrate(
+            state.messages,
+            activeProfile: state.activeMastery,
+          )) {
+            unawaited(_calibrateMasteryQuietlyInBackground());
           }
         },
         cancelOnError: true,
@@ -1302,10 +1832,73 @@ class StudyChatController extends Notifier<StudyChatState> {
   // ------------------------------------------------------------------
 
   Future<void> _appendMessages(List<StudyMessage> additions) async {
+    final merged = [...state.messages, ...additions];
+    final capped = _trimToDisplayCap(
+      merged,
+      lastDistilledCount: state.lastDistilledCount,
+      contextWindowStartId: state.contextWindowStartId,
+    );
     state = state.copyWith(
-      messages: [...state.messages, ...additions],
+      messages: capped.messages,
+      lastDistilledCount: capped.lastDistilledCount,
+      contextWindowStartId: capped.contextWindowStartId,
+      clearContextWindowStart: capped.clearContextWindowStart,
     );
     await _persistMemory();
+  }
+
+  /// 控制界面与本地 `conversation.json` 的最大有效对话条数（默认保留最近 120 条 = 60 轮），
+  /// 仅在超出上限时淘汰最古早条目，同时精确修正沉淀水位线与滑动窗口游标。
+  ({
+    List<StudyMessage> messages,
+    int lastDistilledCount,
+    String? contextWindowStartId,
+    bool clearContextWindowStart,
+  }) _trimToDisplayCap(
+    List<StudyMessage> rawMessages, {
+    required int lastDistilledCount,
+    required String? contextWindowStartId,
+  }) {
+    final totalConv =
+        rawMessages.where((m) => !m.isCompactionNotice).length;
+    final excess = totalConv - ContextCompactor.maxDisplayMessages;
+    if (excess <= 0) {
+      return (
+        messages: rawMessages,
+        lastDistilledCount: lastDistilledCount,
+        contextWindowStartId: contextWindowStartId,
+        clearContextWindowStart: false,
+      );
+    }
+
+    var droppedConv = 0;
+    var cutIndex = 0;
+    while (cutIndex < rawMessages.length && droppedConv < excess) {
+      if (!rawMessages[cutIndex].isCompactionNotice) {
+        droppedConv++;
+      }
+      cutIndex++;
+    }
+    while (cutIndex < rawMessages.length &&
+        rawMessages[cutIndex].isCompactionNotice) {
+      cutIndex++;
+    }
+
+    final trimmed = rawMessages.sublist(cutIndex);
+    final remainingConv =
+        trimmed.where((m) => !m.isCompactionNotice).length;
+    final nextDistilled =
+        (lastDistilledCount - droppedConv).clamp(0, remainingConv);
+
+    final keepWindowStart = contextWindowStartId != null &&
+        trimmed.any((m) => m.id == contextWindowStartId);
+
+    return (
+      messages: trimmed,
+      lastDistilledCount: nextDistilled,
+      contextWindowStartId: keepWindowStart ? contextWindowStartId : null,
+      clearContextWindowStart: !keepWindowStart,
+    );
   }
 
   Future<void> _persistMemory() async {
@@ -1313,6 +1906,8 @@ class StudyChatController extends Notifier<StudyChatState> {
       rollingSummary: state.rollingSummary,
       messages: state.messages,
       focusedDocSlug: state.focusedDocSlug,
+      activeMasterySlug: state.activeMasterySlug,
+      contextWindowStartId: state.contextWindowStartId,
       compactionCount: state.compactionCount,
       lastDistilledCount: state.lastDistilledCount,
       updatedAt: DateTime.now(),

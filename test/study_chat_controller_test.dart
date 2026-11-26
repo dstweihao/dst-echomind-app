@@ -10,7 +10,9 @@ import 'package:echomind_app/data/voice/deepseek_tts_client.dart';
 import 'package:echomind_app/data/voice/streaming_audio_player.dart';
 import 'package:echomind_app/data/voice/voice_recorder_service.dart';
 import 'package:echomind_app/data/voice/wav_encoder.dart';
+import 'package:echomind_app/domain/ai_enums_bridge.dart';
 import 'package:echomind_app/domain/models/ai_settings.dart';
+import 'package:echomind_app/domain/models/knowledge_models.dart';
 import 'package:echomind_app/features/learn/study_chat_controller.dart';
 import 'package:echomind_app/providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -260,11 +262,119 @@ void main() {
     expect(afterCompact.knowledgeDocs.length, 1);
     expect(afterCompact.knowledgeDocs.first.slug, 'economics');
     expect(afterCompact.knowledgeIndex, contains('通货膨胀'));
-    expect(afterCompact.messages.first.isCompactionNotice, true);
+    expect(afterCompact.messages.any((m) => m.isCompactionNotice), true);
+    // 非破坏性归纳：原有聊天历史仍保留在屏幕上供翻阅，但发给模型的活跃窗口已归零
+    expect(afterCompact.conversationalMessages.length, 2);
+    expect(afterCompact.activeLlmMessages, isEmpty);
 
     // 验证物理纯文本文件已落盘至 FileStore
     expect(await store.exists(AppPaths.knowledgeIndexFile), true);
     expect(await store.exists(AppPaths.knowledgeDocFile('economics')), true);
     expect(await store.exists(AppPaths.conversationFile), true);
+  });
+
+  test('三层滑动窗口：满 40 条归纳前文摘要且不删屏显历史，超出 120 条才淘汰最古早条目', () async {
+    final store = MemoryFileStore();
+    final initialMsgs = List.generate(
+      40,
+      (i) => StudyMessage(
+        id: 'm-$i',
+        role: i.isEven ? StudyMessageRole.user : StudyMessageRole.assistant,
+        content: '第 $i 条对话',
+        createdAt: DateTime(2026, 11, 20),
+      ),
+    );
+    await store.write(
+      AppPaths.conversationFile,
+      jsonEncode(
+        ConversationMemory(
+          messages: initialMsgs,
+          updatedAt: DateTime(2026, 11, 20),
+        ).toJson(),
+      ),
+    );
+
+    final compactJson = jsonEncode({
+      'rolling_summary': '前 26 条已压缩成摘要。',
+      'entries': [],
+    });
+    final fakeAi = _FakeAiClient(
+      ['好的，继续往下讲。'],
+      compactJsonReply: compactJson,
+    );
+
+    final container = ProviderContainer(
+      overrides: [
+        initialStorageRootProvider.overrideWithValue(''),
+        fileStoreProvider.overrideWithValue(store),
+        aiSettingsProvider.overrideWithValue(
+          const AiSettings(enabled: true, autoPlayTts: false),
+        ),
+        aiApiKeyProvider.overrideWith((ref) async => 'sk-test'),
+        aiClientProvider.overrideWithValue(fakeAi),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final ctrl = container.read(studyChatControllerProvider.notifier);
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+
+    // 1. 执行一次自动窗口压缩（40 条触发，保留最近 14 条在活跃窗口，但全部 40 条留在屏幕）
+    final ok = await ctrl.compactAndDistillNow(isAuto: true);
+    expect(ok, true);
+
+    final afterCompact = container.read(studyChatControllerProvider);
+    expect(afterCompact.conversationalMessages.length, 40);
+    expect(afterCompact.activeLlmMessages.length, 14);
+    expect(afterCompact.rollingSummary, '前 26 条已压缩成摘要。');
+
+    // 2. 再发一条新提问，验证发给大模型 API 的只有「System + 最近 14 条 + 新提问」，而非 41 条
+    await ctrl.sendText('新问题');
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    expect(fakeAi.lastStreamMessages, isNotNull);
+    // 1 system + 14 recent + 1 new user = 16
+    expect(fakeAi.lastStreamMessages!.length, 16);
+    expect(fakeAi.lastStreamMessages!.first.content, contains('前 26 条已压缩成摘要'));
+
+    // 3. 验证持久化重新加载后，超过 120 条的极端情况会平滑淘汰最古早条目
+    final hugeMsgs = List.generate(
+      125,
+      (i) => StudyMessage(
+        id: 'h-$i',
+        role: i.isEven ? StudyMessageRole.user : StudyMessageRole.assistant,
+        content: '历史 $i',
+        createdAt: DateTime(2026, 11, 20),
+      ),
+    );
+    await store.write(
+      AppPaths.conversationFile,
+      jsonEncode(
+        ConversationMemory(
+          messages: hugeMsgs,
+          lastDistilledCount: 120,
+          updatedAt: DateTime(2026, 11, 20),
+        ).toJson(),
+      ),
+    );
+    final container2 = ProviderContainer(
+      overrides: [
+        initialStorageRootProvider.overrideWithValue(''),
+        fileStoreProvider.overrideWithValue(store),
+        aiSettingsProvider.overrideWithValue(
+          const AiSettings(enabled: true, autoPlayTts: false),
+        ),
+        aiApiKeyProvider.overrideWith((ref) async => 'sk-test'),
+        aiClientProvider.overrideWithValue(fakeAi),
+      ],
+    );
+    addTearDown(container2.dispose);
+    final ctrl2 = container2.read(studyChatControllerProvider.notifier);
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    await ctrl2.sendText('第 126 条');
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+
+    final capped = container2.read(studyChatControllerProvider);
+    expect(capped.conversationalMessages.length, 120);
+    expect(capped.conversationalMessages.first.id, isNot('h-0'));
   });
 }

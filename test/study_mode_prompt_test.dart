@@ -13,6 +13,8 @@ void main() {
       expect(prompt, contains('仅抛出 1 个'));
       expect(prompt, contains('费曼复述'));
       expect(prompt, contains('语音朗读友好'));
+      expect(prompt, contains('代码示例'));
+      expect(prompt, contains('Markdown 代码块'));
       expect(StudyModePrompt.starterPrompts.length, greaterThanOrEqualTo(4));
     });
 

@@ -63,6 +63,147 @@ class KnowledgeRepository {
     }
   }
 
+  /// 为任意中文/符号专题名推荐安全跨平台 ASCII 文件名 slug（如 `C++` → `cpp`）
+  static String suggestSlug(
+    String rawTitle, {
+    Set<String>? existingSlugs,
+  }) {
+    final trimmed = rawTitle.trim();
+    final aliased = trimmed
+        .toLowerCase()
+        .replaceAll('c++', 'cpp')
+        .replaceAll('c#', 'csharp')
+        .replaceAll('f#', 'fsharp')
+        .replaceAll('.net', 'dotnet')
+        .replaceAll('node.js', 'nodejs')
+        .replaceAll('vue.js', 'vuejs');
+
+    var base = KnowledgeEntry.normalizeSlug(aliased);
+    final isExplicitGeneral = trimmed.toLowerCase() == 'general' ||
+        trimmed == '通用' ||
+        trimmed == '综合';
+
+    if (base == 'general' && !isExplicitGeneral && trimmed.isNotEmpty) {
+      // 纯非 ASCII 标题生成确定性短哈希 slug，避免不同中文专题挤进同一个 general.md
+      var hash = 2166136261;
+      for (final unit in trimmed.codeUnits) {
+        hash ^= unit;
+        hash = (hash * 16777619) & 0x7fffffff;
+      }
+      base = 'topic-${hash.toRadixString(36)}';
+    }
+
+    if (existingSlugs == null || !existingSlugs.contains(base)) {
+      return base;
+    }
+
+    var idx = 2;
+    while (existingSlugs.contains('$base-$idx')) {
+      idx++;
+    }
+    return '$base-$idx';
+  }
+
+  /// 读取所有 `docs/*.md` 的全文内容，返回 `{slug: markdown}`
+  Future<Map<String, String>> readAllDocsMarkdown() async {
+    final docs = await listDocs();
+    final result = <String, String>{};
+    for (final doc in docs) {
+      final raw = await readDocMarkdown(doc.slug);
+      result[doc.slug] = raw;
+    }
+    return result;
+  }
+
+  /// 手动新建专题文档（`docs/<slug>.md`），并同步刷新 `KNOWLEDGE.md` 总清单
+  Future<KnowledgeDocSummary> createTopic({
+    required String title,
+    String? slug,
+    String? markdown,
+  }) async {
+    final cleanTitle = title.trim();
+    if (cleanTitle.isEmpty) {
+      throw ArgumentError.value(title, 'title', '专题名称不能为空');
+    }
+
+    final existingDocs = await listDocs();
+    final existingSlugs = existingDocs.map((d) => d.slug).toSet();
+    final safeSlug = (slug != null && slug.trim().isNotEmpty)
+        ? KnowledgeEntry.normalizeSlug(slug)
+        : suggestSlug(cleanTitle, existingSlugs: existingSlugs);
+
+    final docPath = AppPaths.knowledgeDocFile(safeSlug);
+    if (await _store.exists(docPath)) {
+      throw StateError('专题「$safeSlug」已存在');
+    }
+
+    await _store.ensureDirectory(AppPaths.knowledgeDocsDir);
+
+    final body = markdown?.trim() ?? '';
+    final String finalContent;
+    if (body.isEmpty) {
+      finalContent = '# $cleanTitle\n';
+    } else if (body.startsWith('# ')) {
+      finalContent = '$body\n';
+    } else {
+      finalContent = '# $cleanTitle\n\n$body\n';
+    }
+
+    await _store.write(docPath, finalContent);
+    await _rebuildIndex();
+
+    final updated = await listDocs();
+    return updated.firstWhere(
+      (d) => d.slug == safeSlug,
+      orElse: () => KnowledgeDocSummary(
+        slug: safeSlug,
+        categoryName: cleanTitle,
+        filePath: docPath,
+        topics: const [],
+      ),
+    );
+  }
+
+  /// 保存或覆写指定专题文档全文（`docs/<slug>.md`），并重建 `KNOWLEDGE.md`
+  Future<void> saveDocMarkdown({
+    required String slug,
+    required String markdown,
+  }) async {
+    await applyUpdates(upserts: [(slug: slug, markdown: markdown)]);
+  }
+
+  /// 删除指定专题文档（`docs/<slug>.md`），并重建 `KNOWLEDGE.md`
+  Future<void> deleteDoc(String slug) async {
+    await applyUpdates(deletes: [slug]);
+  }
+
+  /// 批量写入/删除专题文档后统一重建一次 `KNOWLEDGE.md`
+  Future<void> applyUpdates({
+    List<({String slug, String markdown})> upserts = const [],
+    List<String> deletes = const [],
+  }) async {
+    if (upserts.isEmpty && deletes.isEmpty) return;
+
+    await _store.ensureDirectory(AppPaths.knowledgeDocsDir);
+
+    for (final item in upserts) {
+      final safeSlug = KnowledgeEntry.normalizeSlug(item.slug);
+      final docPath = AppPaths.knowledgeDocFile(safeSlug);
+      final trimmed = item.markdown.trimRight();
+      await _store.write(docPath, trimmed.isEmpty ? '' : '$trimmed\n');
+    }
+
+    for (final slug in deletes) {
+      final safeSlug = KnowledgeEntry.normalizeSlug(slug);
+      final docPath = AppPaths.knowledgeDocFile(safeSlug);
+      if (await _store.exists(docPath)) {
+        await _store.delete(docPath);
+      }
+    }
+
+    await _rebuildIndex();
+  }
+
   /// 将一批新沉淀的知识卡片增量写入对应 `docs/<slug>.md`，并同步重建 `KNOWLEDGE.md` 总清单
   Future<void> appendEntries(List<KnowledgeEntry> entries) async {
     final valid = entries

@@ -126,6 +126,8 @@ class KnowledgeDocSheet extends StatefulWidget {
   final String markdown;
   final VoidCallback? onReviewPressed;
   final VoidCallback? onExportPressed;
+  final Future<bool> Function(String updatedMarkdown)? onSaveMarkdown;
+  final Future<bool> Function()? onDeleteDoc;
 
   const KnowledgeDocSheet({
     super.key,
@@ -134,6 +136,8 @@ class KnowledgeDocSheet extends StatefulWidget {
     required this.markdown,
     this.onReviewPressed,
     this.onExportPressed,
+    this.onSaveMarkdown,
+    this.onDeleteDoc,
   });
 
   static Future<void> show(
@@ -143,6 +147,8 @@ class KnowledgeDocSheet extends StatefulWidget {
     required String markdown,
     VoidCallback? onReviewPressed,
     VoidCallback? onExportPressed,
+    Future<bool> Function(String updatedMarkdown)? onSaveMarkdown,
+    Future<bool> Function()? onDeleteDoc,
   }) {
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -152,6 +158,8 @@ class KnowledgeDocSheet extends StatefulWidget {
           markdown: markdown,
           onReviewPressed: onReviewPressed,
           onExportPressed: onExportPressed,
+          onSaveMarkdown: onSaveMarkdown,
+          onDeleteDoc: onDeleteDoc,
         ),
       ),
     );
@@ -162,12 +170,17 @@ class KnowledgeDocSheet extends StatefulWidget {
 }
 
 class _KnowledgeDocSheetState extends State<KnowledgeDocSheet> {
-  late final List<ParsedKnowledgeCard> _cards =
-      ParsedKnowledgeCard.parseFromMarkdown(widget.markdown);
-  late final List<GlobalKey> _cardKeys =
+  late String _currentMarkdown = widget.markdown;
+  late List<ParsedKnowledgeCard> _cards =
+      ParsedKnowledgeCard.parseFromMarkdown(_currentMarkdown);
+  late List<GlobalKey> _cardKeys =
       List.generate(_cards.length, (_) => GlobalKey());
+  late final TextEditingController _editCtrl =
+      TextEditingController(text: _currentMarkdown);
 
   bool _selfTestMode = false;
+  bool _isEditing = false;
+  bool _saving = false;
   final Set<int> _revealedIndices = <int>{};
   int? _highlightedIndex;
   Timer? _highlightTimer;
@@ -175,10 +188,111 @@ class _KnowledgeDocSheetState extends State<KnowledgeDocSheet> {
   bool get _useCardView =>
       _cards.isNotEmpty && _cards.every((c) => c.hasStructuredFields);
 
+  String get _displayTitle {
+    for (final raw in _currentMarkdown.split('\n')) {
+      final line = raw.trim();
+      if (line.startsWith('# ')) {
+        final heading = line.substring(2).trim();
+        if (heading.isNotEmpty) return heading;
+      }
+    }
+    return widget.title;
+  }
+
   @override
   void dispose() {
     _highlightTimer?.cancel();
+    _editCtrl.dispose();
     super.dispose();
+  }
+
+  void _enterEditMode() {
+    _editCtrl.text = _currentMarkdown;
+    setState(() {
+      _isEditing = true;
+      _selfTestMode = false;
+      _revealedIndices.clear();
+    });
+  }
+
+  void _cancelEditMode() {
+    setState(() {
+      _isEditing = false;
+      _editCtrl.text = _currentMarkdown;
+    });
+  }
+
+  Future<void> _saveEdit() async {
+    final handler = widget.onSaveMarkdown;
+    if (handler == null || _saving) return;
+
+    final nextText = _editCtrl.text;
+    setState(() => _saving = true);
+    final ok = await handler(nextText);
+    if (!mounted) return;
+    if (ok) {
+      final parsed = ParsedKnowledgeCard.parseFromMarkdown(nextText);
+      setState(() {
+        _currentMarkdown = nextText;
+        _cards = parsed;
+        _cardKeys = List.generate(parsed.length, (_) => GlobalKey());
+        _isEditing = false;
+        _saving = false;
+      });
+      AppToast.showSuccess(context, title: '已保存专题内容');
+    } else {
+      setState(() => _saving = false);
+    }
+  }
+
+  void _insertCardTemplate() {
+    final now = DateTime.now();
+    final date =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final template = '\n## 知识点主题 `$date`\n- 核心：\n- 类比：\n- 误区：\n- 复述：\n';
+    final current = _editCtrl.text;
+    final sel = _editCtrl.selection;
+    if (sel.isValid) {
+      final updated = current.replaceRange(sel.start, sel.end, template);
+      _editCtrl.value = TextEditingValue(
+        text: updated,
+        selection: TextSelection.collapsed(
+          offset: sel.start + '\n## 知识点主题 `$date`\n- 核心：'.length,
+        ),
+      );
+    } else {
+      _editCtrl.text = '$current$template';
+    }
+  }
+
+  Future<void> _confirmAndDelete() async {
+    final onDelete = widget.onDeleteDoc;
+    if (onDelete == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dlgCtx) => AlertDialog(
+        title: const Text('删除专题'),
+        content: Text('确定删除「$_displayTitle」及其全部笔记吗？删除后不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dlgCtx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dlgCtx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFFDC2626)),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final ok = await onDelete();
+    if (!mounted) return;
+    if (ok) {
+      Navigator.of(context).pop();
+      AppToast.showInfo(context, title: '已删除专题「$_displayTitle」');
+    }
   }
 
   void _enterSelfTestMode() {
@@ -375,29 +489,43 @@ class _KnowledgeDocSheetState extends State<KnowledgeDocSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final showReviewButton = _useCardView || widget.onReviewPressed != null;
+    final showReviewButton =
+        !_isEditing && (_useCardView || widget.onReviewPressed != null);
 
     return Scaffold(
-      backgroundColor: _useCardView ? AppColors.background : AppColors.surface,
+      backgroundColor: (_useCardView && !_isEditing)
+          ? AppColors.background
+          : AppColors.surface,
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          tooltip: '返回',
-          icon: const Icon(
-            Icons.arrow_back_ios_new_rounded,
-            size: 19,
-            color: Color(0xFF1E293B),
-          ),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        leading: _isEditing
+            ? IconButton(
+                key: const Key('doc_cancel_edit_btn'),
+                tooltip: '取消编辑',
+                icon: const Icon(
+                  Icons.close_rounded,
+                  size: 21,
+                  color: Color(0xFF475569),
+                ),
+                onPressed: _saving ? null : _cancelEditMode,
+              )
+            : IconButton(
+                tooltip: '返回',
+                icon: const Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  size: 19,
+                  color: Color(0xFF1E293B),
+                ),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
         titleSpacing: 0,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              widget.title,
+              _isEditing ? '编辑 · $_displayTitle' : _displayTitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
@@ -419,110 +547,208 @@ class _KnowledgeDocSheetState extends State<KnowledgeDocSheet> {
               ),
           ],
         ),
-        actions: [
-          if (_useCardView)
-            IconButton(
-              key: const Key('doc_outline_search_btn'),
-              tooltip: '大纲与搜索',
-              icon: const Icon(
-                Icons.search_rounded,
-                size: 21,
-                color: Color(0xFF334155),
-              ),
-              onPressed: _openOutlineSearchSheet,
-            ),
-          if (showReviewButton)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Center(
-                child: InkWell(
-                  key: Key(
-                    _selfTestMode
-                        ? 'doc_exit_self_test_btn'
-                        : 'doc_review_menu_btn',
+        actions: _isEditing
+            ? [
+                TextButton.icon(
+                  key: const Key('doc_insert_template_btn'),
+                  onPressed: _saving ? null : _insertCardTemplate,
+                  icon: const Icon(Icons.add_card_rounded, size: 17),
+                  label: const Text('卡片模板'),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                  onTap: _openReviewMenu,
-                  borderRadius: BorderRadius.circular(16),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 140),
-                    height: 30,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: _selfTestMode
-                          ? AppColors.primary
-                          : AppColors.primary.withValues(alpha: 0.1),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 12, left: 4),
+                  child: Center(
+                    child: InkWell(
+                      key: const Key('doc_save_edit_btn'),
+                      onTap: _saving ? null : _saveEdit,
                       borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(
-                      _selfTestMode ? '退出自测' : '复习',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: _selfTestMode ? Colors.white : AppColors.primary,
+                      child: Container(
+                        height: 30,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: _saving
+                              ? AppColors.primary.withValues(alpha: 0.5)
+                              : AppColors.primary,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: _saving
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                '保存',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
-          PopupMenuButton<String>(
-            key: const Key('doc_more_menu_btn'),
-            tooltip: '更多',
-            icon: const Icon(
-              Icons.more_horiz_rounded,
-              size: 21,
-              color: Color(0xFF475569),
-            ),
-            color: Colors.white,
-            elevation: 4,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: const BorderSide(color: Color(0xFFE2E8F0)),
-            ),
-            onSelected: (action) {
-              if (action == 'export') {
-                widget.onExportPressed?.call();
-              } else if (action == 'copy') {
-                Clipboard.setData(ClipboardData(text: widget.markdown));
-                AppToast.showCopied(context, message: '已复制 Markdown');
-              }
-            },
-            itemBuilder: (context) => [
-              if (widget.onExportPressed != null &&
-                  widget.markdown.trim().isNotEmpty)
-                const PopupMenuItem<String>(
-                  value: 'export',
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.ios_share_rounded,
-                        size: 18,
-                        color: Color(0xFF475569),
-                      ),
-                      SizedBox(width: 10),
-                      Text('导出 Markdown', style: TextStyle(fontSize: 14)),
-                    ],
-                  ),
-                ),
-              const PopupMenuItem<String>(
-                value: 'copy',
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.copy_rounded,
-                      size: 17,
-                      color: Color(0xFF475569),
+              ]
+            : [
+                if (_useCardView)
+                  IconButton(
+                    key: const Key('doc_outline_search_btn'),
+                    tooltip: '大纲与搜索',
+                    icon: const Icon(
+                      Icons.search_rounded,
+                      size: 21,
+                      color: Color(0xFF334155),
                     ),
-                    SizedBox(width: 10),
-                    Text('复制 Markdown', style: TextStyle(fontSize: 14)),
+                    onPressed: _openOutlineSearchSheet,
+                  ),
+                if (showReviewButton)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Center(
+                      child: InkWell(
+                        key: Key(
+                          _selfTestMode
+                              ? 'doc_exit_self_test_btn'
+                              : 'doc_review_menu_btn',
+                        ),
+                        onTap: _openReviewMenu,
+                        borderRadius: BorderRadius.circular(16),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 140),
+                          height: 30,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: _selfTestMode
+                                ? AppColors.primary
+                                : AppColors.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            _selfTestMode ? '退出自测' : '复习',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: _selfTestMode
+                                  ? Colors.white
+                                  : AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                PopupMenuButton<String>(
+                  key: const Key('doc_more_menu_btn'),
+                  tooltip: '更多',
+                  icon: const Icon(
+                    Icons.more_horiz_rounded,
+                    size: 21,
+                    color: Color(0xFF475569),
+                  ),
+                  color: Colors.white,
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  onSelected: (action) {
+                    if (action == 'edit') {
+                      _enterEditMode();
+                    } else if (action == 'export') {
+                      widget.onExportPressed?.call();
+                    } else if (action == 'copy') {
+                      Clipboard.setData(ClipboardData(text: _currentMarkdown));
+                      AppToast.showCopied(context, message: '已复制 Markdown');
+                    } else if (action == 'delete') {
+                      unawaited(_confirmAndDelete());
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    if (widget.onSaveMarkdown != null)
+                      const PopupMenuItem<String>(
+                        key: Key('doc_edit_menu_item'),
+                        value: 'edit',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.edit_outlined,
+                              size: 18,
+                              color: Color(0xFF475569),
+                            ),
+                            SizedBox(width: 10),
+                            Text('编辑 Markdown', style: TextStyle(fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                    if (widget.onExportPressed != null &&
+                        _currentMarkdown.trim().isNotEmpty)
+                      const PopupMenuItem<String>(
+                        value: 'export',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.ios_share_rounded,
+                              size: 18,
+                              color: Color(0xFF475569),
+                            ),
+                            SizedBox(width: 10),
+                            Text('导出 Markdown', style: TextStyle(fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                    const PopupMenuItem<String>(
+                      value: 'copy',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.copy_rounded,
+                            size: 17,
+                            color: Color(0xFF475569),
+                          ),
+                          SizedBox(width: 10),
+                          Text('复制 Markdown', style: TextStyle(fontSize: 14)),
+                        ],
+                      ),
+                    ),
+                    if (widget.onDeleteDoc != null)
+                      const PopupMenuItem<String>(
+                        key: Key('doc_delete_menu_item'),
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.delete_outline_rounded,
+                              size: 18,
+                              color: Color(0xFFDC2626),
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              '删除专题',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Color(0xFFDC2626),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 4),
-        ],
+                const SizedBox(width: 4),
+              ],
         bottom: const PreferredSize(
           preferredSize: Size.fromHeight(1),
           child: Divider(height: 1, color: Color(0xFFE2E8F0)),
@@ -530,9 +756,55 @@ class _KnowledgeDocSheetState extends State<KnowledgeDocSheet> {
       ),
       body: SafeArea(
         top: false,
-        child: ScrollConfiguration(
-          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-          child: _useCardView ? _buildCardsBody() : _buildMarkdownBody(),
+        child: _isEditing
+            ? _buildEditorBody()
+            : ScrollConfiguration(
+                behavior:
+                    ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                child: _useCardView ? _buildCardsBody() : _buildMarkdownBody(),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildEditorBody() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 780),
+          child: TextField(
+            key: const Key('doc_markdown_editor'),
+            controller: _editCtrl,
+            maxLines: null,
+            expands: true,
+            textAlignVertical: TextAlignVertical.top,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.6,
+              color: Color(0xFF0F172A),
+              fontFamily: 'Menlo, Monaco, monospace',
+            ),
+            decoration: InputDecoration(
+              hintText: '# 专题名称\n\n## 知识点主题 `2026-11-26`\n- 核心：...',
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+              contentPadding: const EdgeInsets.all(14),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: AppColors.primary, width: 1.5),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -749,45 +1021,59 @@ class _KnowledgeDocSheetState extends State<KnowledgeDocSheet> {
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 780),
-          child: MarkdownBody(
-            data: widget.markdown.isEmpty ? '（暂无内容）' : widget.markdown,
-            selectable: true,
-            styleSheet: MarkdownStyleSheet(
-              blockSpacing: 12,
-              h1: const TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF0F172A),
-                height: 1.4,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              MarkdownBody(
+                data: _currentMarkdown.isEmpty ? '（暂无内容）' : _currentMarkdown,
+                selectable: true,
+                styleSheet: MarkdownStyleSheet(
+                  blockSpacing: 12,
+                  h1: const TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0F172A),
+                    height: 1.4,
+                  ),
+                  h2: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1E293B),
+                    height: 1.45,
+                  ),
+                  h3: const TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1E293B),
+                    height: 1.45,
+                  ),
+                  p: const TextStyle(
+                    fontSize: 15,
+                    height: 1.7,
+                    color: Color(0xFF334155),
+                  ),
+                  code: const TextStyle(
+                    fontSize: 13.5,
+                    color: Color(0xFF0F172A),
+                    backgroundColor: Color(0xFFF1F5F9),
+                    fontFamily: 'Menlo, Monaco, monospace',
+                  ),
+                  listBullet: TextStyle(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-              h2: const TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF1E293B),
-                height: 1.45,
-              ),
-              h3: const TextStyle(
-                fontSize: 15.5,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF1E293B),
-                height: 1.45,
-              ),
-              p: const TextStyle(
-                fontSize: 15,
-                height: 1.7,
-                color: Color(0xFF334155),
-              ),
-              code: const TextStyle(
-                fontSize: 13.5,
-                color: Color(0xFF0F172A),
-                backgroundColor: Color(0xFFF1F5F9),
-                fontFamily: 'Menlo, Monaco, monospace',
-              ),
-              listBullet: TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+              if (widget.onSaveMarkdown != null && _cards.isEmpty) ...[
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  key: const Key('doc_empty_edit_btn'),
+                  onPressed: _enterEditMode,
+                  icon: const Icon(Icons.edit_outlined, size: 17),
+                  label: const Text('编辑专题内容'),
+                ),
+              ],
+            ],
           ),
         ),
       ),

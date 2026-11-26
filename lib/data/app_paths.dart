@@ -18,4 +18,10 @@ class AppPaths {
 
   /// 指定类别专题文档的逻辑路径
   static String knowledgeDocFile(String slug) => '$knowledgeDocsDir/$slug.md';
+
+  /// 各学科自适应能力画像与动态路线图存储目录
+  static const String masteryDir = '$appRoot/mastery';
+
+  /// 指定专题的精通路径档案路径（`mastery/<slug>.json`）
+  static String masteryProfileFile(String slug) => '$masteryDir/$slug.json';
 }

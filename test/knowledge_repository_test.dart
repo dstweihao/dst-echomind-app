@@ -75,5 +75,49 @@ void main() {
       expect(await store.exists(AppPaths.knowledgeDocFile('economics')), true);
       expect(await store.exists(AppPaths.knowledgeDocFile('programming-cs')), true);
     });
+
+    test('支持 suggestSlug、新建专题、编辑覆写、批量拆分与删除并同步重建 KNOWLEDGE.md', () async {
+      final store = MemoryFileStore();
+      final repo = KnowledgeRepository(store);
+
+      // 1. suggestSlug 正确处理 C++ / 中文互不冲突 / 重名后缀
+      expect(KnowledgeRepository.suggestSlug('C++'), 'cpp');
+      expect(KnowledgeRepository.suggestSlug('C#'), 'csharp');
+      final mlSlug = KnowledgeRepository.suggestSlug('机器学习');
+      final dlSlug = KnowledgeRepository.suggestSlug('深度学习');
+      expect(mlSlug, isNot('general'));
+      expect(dlSlug, isNot('general'));
+      expect(mlSlug, isNot(dlSlug));
+      expect(
+        KnowledgeRepository.suggestSlug('C++', existingSlugs: {'cpp'}),
+        'cpp-2',
+      );
+
+      // 2. 新建专题「C++」
+      final created = await repo.createTopic(title: 'C++');
+      expect(created.slug, 'cpp');
+      expect(created.categoryName, 'C++');
+      expect(await repo.readDocMarkdown('cpp'), '# C++');
+      expect(await repo.readIndexMarkdown(), contains('## C++ (`docs/cpp.md`)'));
+
+      // 重复创建同 slug 应拒绝覆盖
+      await expectLater(
+        repo.createTopic(title: 'C++', slug: 'cpp'),
+        throwsStateError,
+      );
+
+      // 3. 保存更新文档并同步重建索引
+      await repo.saveDocMarkdown(
+        slug: 'cpp',
+        markdown: '# C++\n\n## 传值 vs 传引用 `2026-11-26`\n- 核心：大对象传引用零拷贝',
+      );
+      final idxAfterSave = await repo.readIndexMarkdown();
+      expect(idxAfterSave, contains('- **传值 vs 传引用**：大对象传引用零拷贝'));
+
+      // 4. 删除专题后文件与索引条目一并移除
+      await repo.deleteDoc('cpp');
+      expect(await store.exists(AppPaths.knowledgeDocFile('cpp')), false);
+      expect(await repo.readIndexMarkdown(), isEmpty);
+    });
   });
 }

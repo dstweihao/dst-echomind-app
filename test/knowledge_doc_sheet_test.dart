@@ -133,4 +133,53 @@ void main() {
     expect(find.byKey(const Key('doc_more_menu_btn')), findsOneWidget);
     expect(find.textContaining('递归'), findsOneWidget);
   });
+
+  testWidgets('支持编辑 Markdown 保存与删除专题交互', (tester) async {
+    String? savedMarkdown;
+    var deleted = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: KnowledgeDocSheet(
+          title: 'C++',
+          subtitle: 'docs/cpp.md',
+          markdown: '# C++\n',
+          onSaveMarkdown: (updated) async {
+            savedMarkdown = updated;
+            return true;
+          },
+          onDeleteDoc: () async {
+            deleted++;
+            return true;
+          },
+        ),
+      ),
+    );
+
+    // 空专题在 Markdown 视图下直接给出「编辑专题内容」按钮
+    await tester.tap(find.byKey(const Key('doc_empty_edit_btn')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('doc_markdown_editor')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('doc_markdown_editor')),
+      '# C++\n\n## 传值 vs 传引用 `2026-11-26`\n- 核心：大对象传引用零拷贝\n',
+    );
+    await tester.tap(find.byKey(const Key('doc_save_edit_btn')));
+    await tester.pumpAndSettle();
+
+    expect(savedMarkdown, contains('大对象传引用零拷贝'));
+    expect(find.text('传值 vs 传引用'), findsOneWidget);
+
+    // 通过更多菜单触发删除确认
+    await tester.tap(find.byKey(const Key('doc_more_menu_btn')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('doc_delete_menu_item')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('删除专题'), findsWidgets);
+    await tester.tap(find.text('删除'));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    expect(deleted, 1);
+  });
 }

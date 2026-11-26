@@ -14,14 +14,17 @@ class ContextCompactor {
   /// 静默自动知识沉淀的新增消息条数阈值（每 3 轮问答后台自动提炼沉淀，不折叠当前对话）
   static const int autoDistillNewMessagesThreshold = 6;
 
-  /// 自动触发压缩的消息条数阈值（约 10 轮问答）
-  static const int autoCompactMessageThreshold = 20;
+  /// 自动触发 AI 工作记忆压缩的滑动窗口消息条数阈值（约 20 轮问答）
+  static const int autoCompactMessageThreshold = 40;
 
-  /// 自动触发压缩的累计字符数阈值
-  static const int autoCompactCharThreshold = 12000;
+  /// 自动触发 AI 工作记忆压缩的滑动窗口累计字符数阈值
+  static const int autoCompactCharThreshold = 24000;
 
-  /// 自动压缩后保留在工作记忆里的最近原话条数
-  static const int keepRecentMessages = 4;
+  /// 自动压缩后在发给 AI 的活跃窗口内保留的最近原话条数（保留最近 7 轮问答）
+  static const int keepRecentMessages = 14;
+
+  /// 界面与本地 conversation.json 保留的对话气泡上限（保留最近 60 轮问答，防止无限膨胀）
+  static const int maxDisplayMessages = 120;
 
   static const String _distillSystemPrompt = '''
 你是知识沉淀与上下文压缩器。只输出合法 JSON，无解释文字。

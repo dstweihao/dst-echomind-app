@@ -11,6 +11,8 @@ class KnowledgeDrawer extends StatelessWidget {
   final VoidCallback onOpenIndex;
   final ValueChanged<KnowledgeDocSummary> onOpenDoc;
   final VoidCallback onCompactNow;
+  final VoidCallback? onCreateTopic;
+  final VoidCallback? onOrganizeWithAi;
   final VoidCallback? onExportAll;
 
   const KnowledgeDrawer({
@@ -19,6 +21,8 @@ class KnowledgeDrawer extends StatelessWidget {
     required this.onOpenIndex,
     required this.onOpenDoc,
     required this.onCompactNow,
+    this.onCreateTopic,
+    this.onOrganizeWithAi,
     this.onExportAll,
   });
 
@@ -137,7 +141,7 @@ class KnowledgeDrawer extends StatelessWidget {
             ),
 
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 0, 12, 8),
               child: Row(
                 children: [
                   const Text(
@@ -149,14 +153,48 @@ class KnowledgeDrawer extends StatelessWidget {
                     ),
                   ),
                   const Spacer(),
+                  if (onCreateTopic != null)
+                    TextButton.icon(
+                      key: const Key('drawer_new_topic_btn'),
+                      onPressed: onCreateTopic,
+                      icon: const Icon(Icons.add_rounded, size: 15),
+                      label: const Text('新建'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  if (onOrganizeWithAi != null && docs.isNotEmpty)
+                    TextButton.icon(
+                      key: const Key('drawer_organize_btn'),
+                      onPressed:
+                          chatState.isGenerating ? null : onOrganizeWithAi,
+                      icon: const Icon(Icons.auto_fix_high_rounded, size: 14),
+                      label: const Text('整理'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                   if (chatState.conversationalMessages.length >= 2)
                     TextButton.icon(
                       onPressed: chatState.isCompacting ? null : onCompactNow,
                       icon: const Icon(Icons.auto_awesome_rounded, size: 15),
                       label: const Text('沉淀'),
                       style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
                         minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         textStyle: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,

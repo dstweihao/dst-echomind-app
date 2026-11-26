@@ -14,6 +14,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../data/ai/prompts/study_mode_prompt.dart';
 import '../../data/ai/provider_presets.dart';
 import '../../data/repositories/knowledge_exporter.dart';
+import '../../data/repositories/knowledge_repository.dart';
 import '../../domain/ai_enums_bridge.dart';
 import '../../domain/models/knowledge_models.dart';
 import '../../domain/models/update_status.dart';
@@ -93,24 +94,19 @@ class _LearnPageState extends ConsumerState<LearnPage> {
         },
         onOpenDoc: (doc) async {
           Navigator.of(context).pop();
-          final md = await controller.loadDocContent(doc.slug);
-          if (!context.mounted) return;
-          await KnowledgeDocSheet.show(
-            context,
-            title: doc.categoryName,
-            subtitle: 'docs/${doc.slug}.md',
-            markdown: md,
-            onReviewPressed: () => controller.startReviewFromDoc(doc),
-            onExportPressed: () => _exportSingleDoc(
-              context,
-              fileName: '${doc.slug}.md',
-              markdown: md,
-            ),
-          );
+          await _openKnowledgeDocSheet(context, controller, doc);
         },
         onCompactNow: () {
           Navigator.of(context).pop();
-          _triggerManualCompaction(context, controller);
+          _triggerManualDistill(context, controller);
+        },
+        onCreateTopic: () {
+          Navigator.of(context).pop();
+          unawaited(_showCreateTopicDialog(context, controller));
+        },
+        onOrganizeWithAi: () {
+          Navigator.of(context).pop();
+          unawaited(_showOrganizeKnowledgeDialog(context, controller));
         },
         onExportAll: () {
           Navigator.of(context).pop();
@@ -179,9 +175,9 @@ class _LearnPageState extends ConsumerState<LearnPage> {
                         ? const Color(0xFF1E293B)
                         : const Color(0xFFCBD5E1),
                   ),
-            tooltip: '沉淀并压缩',
+            tooltip: '沉淀到知识库（保留对话）',
             onPressed: canCompact
-                ? () => _triggerManualCompaction(context, controller)
+                ? () => _triggerManualDistill(context, controller)
                 : null,
           ),
           IconButton(
@@ -301,16 +297,109 @@ class _LearnPageState extends ConsumerState<LearnPage> {
     );
   }
 
-  Future<void> _triggerManualCompaction(
+  Future<void> _triggerManualDistill(
     BuildContext context,
     StudyChatController controller,
   ) async {
-    final ok = await controller.compactAndDistillNow();
-    if (!context.mounted || !ok) return;
+    final count = await controller.distillNow();
+    if (!context.mounted || count == null) return;
+    if (count > 0) {
+      AppToast.showSuccess(
+        context,
+        title: '已沉淀 $count 个知识点',
+        detail: '已写入 KNOWLEDGE.md 与 docs/，对话记录已完整保留',
+      );
+    } else {
+      AppToast.showInfo(
+        context,
+        title: '暂无可沉淀的新知识点',
+        detail: '继续聊透一个概念后再试试吧',
+      );
+    }
+  }
+
+  Future<void> _showCreateTopicDialog(
+    BuildContext context,
+    StudyChatController controller,
+  ) async {
+    final existingSlugs = ref
+        .read(studyChatControllerProvider)
+        .knowledgeDocs
+        .map((d) => d.slug)
+        .toSet();
+
+    final created = await showDialog<KnowledgeDocSummary>(
+      context: context,
+      builder: (_) => _CreateTopicDialog(
+        existingSlugs: existingSlugs,
+        onCreate: ({
+          required String title,
+          String? slug,
+          String? markdown,
+        }) =>
+            controller.createTopic(
+          title: title,
+          slug: slug,
+          markdown: markdown,
+        ),
+      ),
+    );
+
+    if (created == null || !context.mounted) return;
     AppToast.showSuccess(
       context,
-      title: '知识已沉淀',
-      detail: '已更新 KNOWLEDGE.md 与 docs/ 并压缩上下文',
+      title: '已新建专题「${created.categoryName}」',
+      detail: 'docs/${created.slug}.md',
+    );
+    await _openKnowledgeDocSheet(context, controller, created);
+  }
+
+  Future<void> _openKnowledgeDocSheet(
+    BuildContext context,
+    StudyChatController controller,
+    KnowledgeDocSummary doc,
+  ) async {
+    final md = await controller.loadDocContent(doc.slug);
+    if (!context.mounted) return;
+    await KnowledgeDocSheet.show(
+      context,
+      title: doc.categoryName,
+      subtitle: 'docs/${doc.slug}.md',
+      markdown: md,
+      onReviewPressed: () => controller.startReviewFromDoc(doc),
+      onExportPressed: () async {
+        final latest = await controller.loadDocContent(doc.slug);
+        if (!context.mounted) return;
+        await _exportSingleDoc(
+          context,
+          fileName: '${doc.slug}.md',
+          markdown: latest,
+        );
+      },
+      onSaveMarkdown: (updated) => controller.saveDocContent(
+        slug: doc.slug,
+        markdown: updated,
+      ),
+      onDeleteDoc: () => controller.deleteDoc(doc.slug),
+    );
+  }
+
+  Future<void> _showOrganizeKnowledgeDialog(
+    BuildContext context,
+    StudyChatController controller,
+  ) async {
+    final instruction = await showDialog<String>(
+      context: context,
+      builder: (_) => const _OrganizeKnowledgeDialog(),
+    );
+
+    if (instruction == null || instruction.isEmpty || !context.mounted) return;
+    final res = await controller.organizeKnowledgeBase(instruction);
+    if (!context.mounted || res == null) return;
+    AppToast.showSuccess(
+      context,
+      title: '知识库已整理',
+      detail: res.summaryLine(),
     );
   }
 
@@ -485,28 +574,52 @@ class _LearnPageState extends ConsumerState<LearnPage> {
     StudyChatState chatState,
     StudyChatController controller,
   ) {
-    return ListView(
+    final hasSummary = chatState.rollingSummary.trim().isNotEmpty;
+    final visibleMessages = chatState.messages
+        .where((m) => m.isCompactionNotice || m.role != StudyMessageRole.system)
+        .toList(growable: false);
+    final hasStreaming = chatState.streamingText.isNotEmpty;
+    final hasThinking =
+        chatState.isGenerating && chatState.streamingText.isEmpty;
+
+    final totalCount = (hasSummary ? 1 : 0) +
+        visibleMessages.length +
+        (hasStreaming ? 1 : 0) +
+        (hasThinking ? 1 : 0);
+
+    return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.pageHorizontal,
         vertical: AppSpacing.sm,
       ),
-      children: [
-        if (chatState.rollingSummary.trim().isNotEmpty)
-          _RollingSummaryCard(summary: chatState.rollingSummary),
-        for (final msg in chatState.messages)
-          if (msg.isCompactionNotice)
-            _buildCompactionDivider(msg.content)
-          else if (msg.role != StudyMessageRole.system)
-            _buildBubble(
-              msg: msg,
-              isStreaming: false,
-              isPlayingThis:
-                  chatState.isSpeaking && chatState.playingMessageId == msg.id,
-              onToggleSpeak: () => controller.toggleMessagePlayback(msg),
-            ),
-        if (chatState.streamingText.isNotEmpty)
-          _buildBubble(
+      itemCount: totalCount,
+      itemBuilder: (ctx, index) {
+        var cursor = index;
+        if (hasSummary) {
+          if (cursor == 0) {
+            return _RollingSummaryCard(summary: chatState.rollingSummary);
+          }
+          cursor--;
+        }
+        if (cursor < visibleMessages.length) {
+          final msg = visibleMessages[cursor];
+          if (msg.isCompactionNotice) {
+            return _buildCompactionDivider(msg.content);
+          }
+          return _buildBubble(
+            key: ValueKey(msg.id),
+            msg: msg,
+            isStreaming: false,
+            isPlayingThis:
+                chatState.isSpeaking && chatState.playingMessageId == msg.id,
+            onToggleSpeak: () => controller.toggleMessagePlayback(msg),
+          );
+        }
+        cursor -= visibleMessages.length;
+        if (hasStreaming && cursor == 0) {
+          return _buildBubble(
+            key: const ValueKey(StudyChatController.streamingMessageId),
             msg: StudyMessage(
               id: StudyChatController.streamingMessageId,
               role: StudyMessageRole.assistant,
@@ -518,10 +631,10 @@ class _LearnPageState extends ConsumerState<LearnPage> {
                 chatState.playingMessageId ==
                     StudyChatController.streamingMessageId,
             onToggleSpeak: () => controller.stopPlayback(),
-          ),
-        if (chatState.isGenerating && chatState.streamingText.isEmpty)
-          _buildThinkingIndicator(),
-      ],
+          );
+        }
+        return _buildThinkingIndicator();
+      },
     );
   }
 
@@ -565,6 +678,7 @@ class _LearnPageState extends ConsumerState<LearnPage> {
   }
 
   Widget _buildBubble({
+    Key? key,
     required StudyMessage msg,
     required bool isStreaming,
     required bool isPlayingThis,
@@ -604,6 +718,7 @@ class _LearnPageState extends ConsumerState<LearnPage> {
             msg.content.contains('鉴权失败'));
 
     return Padding(
+      key: key,
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -917,9 +1032,15 @@ class _LearnPageState extends ConsumerState<LearnPage> {
         fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       ),
       codeblockDecoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: isUser
+            ? Colors.black.withValues(alpha: 0.2)
+            : const Color(0xFFF1F5F9),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(
+          color: isUser
+              ? Colors.white.withValues(alpha: 0.2)
+              : const Color(0xFFE2E8F0),
+        ),
       ),
       codeblockPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       blockquote: TextStyle(
@@ -1305,6 +1426,171 @@ class _ThinkingCardState extends State<_ThinkingCard> {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _CreateTopicDialog extends StatefulWidget {
+  final Set<String> existingSlugs;
+  final Future<KnowledgeDocSummary?> Function({
+    required String title,
+    String? slug,
+    String? markdown,
+  }) onCreate;
+
+  const _CreateTopicDialog({
+    required this.existingSlugs,
+    required this.onCreate,
+  });
+
+  @override
+  State<_CreateTopicDialog> createState() => _CreateTopicDialogState();
+}
+
+class _CreateTopicDialogState extends State<_CreateTopicDialog> {
+  final _titleCtrl = TextEditingController();
+  final _slugCtrl = TextEditingController();
+  final _noteCtrl = TextEditingController();
+  bool _slugManuallyEdited = false;
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _slugCtrl.dispose();
+    _noteCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('新建知识专题'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              key: const Key('create_topic_title_input'),
+              controller: _titleCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '专题名称',
+                hintText: '例如：C++',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (val) {
+                if (!_slugManuallyEdited) {
+                  _slugCtrl.text = val.trim().isEmpty
+                      ? ''
+                      : KnowledgeRepository.suggestSlug(
+                          val,
+                          existingSlugs: widget.existingSlugs,
+                        );
+                }
+                setState(() {});
+              },
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('create_topic_slug_input'),
+              controller: _slugCtrl,
+              decoration: const InputDecoration(
+                labelText: '文件名标识 (英文/数字，可留空自动生成)',
+                hintText: '例如：cpp → docs/cpp.md',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (val) {
+                _slugManuallyEdited = val.trim().isNotEmpty;
+              },
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('create_topic_note_input'),
+              controller: _noteCtrl,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: '初始内容（可选，支持 Markdown）',
+                hintText: '可留空，稍后随时编辑或让 AI 写入',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const Key('create_topic_confirm_btn'),
+          onPressed: (_submitting || _titleCtrl.text.trim().isEmpty)
+              ? null
+              : () async {
+                  setState(() => _submitting = true);
+                  final doc = await widget.onCreate(
+                    title: _titleCtrl.text,
+                    slug: _slugCtrl.text,
+                    markdown: _noteCtrl.text,
+                  );
+                  if (!context.mounted) return;
+                  Navigator.of(context).pop(doc);
+                },
+          child: const Text('创建'),
+        ),
+      ],
+    );
+  }
+}
+
+class _OrganizeKnowledgeDialog extends StatefulWidget {
+  const _OrganizeKnowledgeDialog();
+
+  @override
+  State<_OrganizeKnowledgeDialog> createState() =>
+      _OrganizeKnowledgeDialogState();
+}
+
+class _OrganizeKnowledgeDialogState extends State<_OrganizeKnowledgeDialog> {
+  final _instrCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _instrCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('AI 整理知识库'),
+      content: TextField(
+        key: const Key('organize_kb_instruction_input'),
+        controller: _instrCtrl,
+        autofocus: true,
+        maxLines: 3,
+        decoration: const InputDecoration(
+          labelText: '整理指令',
+          hintText: '例如：把「编程与软件」里的 C++ 笔记拆成独立的「C++」专题',
+          border: OutlineInputBorder(),
+        ),
+        onChanged: (_) => setState(() {}),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const Key('organize_kb_confirm_btn'),
+          onPressed: _instrCtrl.text.trim().isEmpty
+              ? null
+              : () => Navigator.of(context).pop(_instrCtrl.text.trim()),
+          child: const Text('开始整理'),
+        ),
+      ],
     );
   }
 }

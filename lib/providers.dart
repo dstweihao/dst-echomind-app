@@ -7,6 +7,8 @@ import 'data/ai/ai_client.dart';
 import 'data/ai/anthropic_client.dart';
 import 'data/ai/context_compactor.dart';
 import 'data/ai/deepseek_ocr_client.dart';
+import 'data/ai/knowledge_organizer.dart';
+import 'data/ai/mastery_calibrator.dart';
 import 'data/ai/openai_client.dart';
 import 'data/attachments/attachment_picker_service.dart';
 import 'data/credentials/credentials_store.dart';
@@ -14,6 +16,7 @@ import 'data/repositories/config_repository.dart';
 import 'data/repositories/conversation_repository.dart';
 import 'data/repositories/knowledge_exporter.dart';
 import 'data/repositories/knowledge_repository.dart';
+import 'data/repositories/mastery_repository.dart';
 import 'data/settings/app_settings_store.dart';
 import 'data/storage/file_store.dart';
 import 'data/storage/file_store_factory.dart';
@@ -133,6 +136,18 @@ final conversationRepositoryProvider = Provider<ConversationRepository>((ref) {
 
 final contextCompactorProvider = Provider<ContextCompactor>((ref) {
   return ContextCompactor();
+});
+
+final knowledgeOrganizerProvider = Provider<KnowledgeOrganizer>((ref) {
+  return const KnowledgeOrganizer();
+});
+
+final masteryRepositoryProvider = Provider<MasteryRepository>((ref) {
+  return MasteryRepository(ref.watch(fileStoreProvider));
+});
+
+final masteryCalibratorProvider = Provider<MasteryCalibrator>((ref) {
+  return const MasteryCalibrator();
 });
 
 final deepSeekAsrClientProvider = Provider<DeepSeekAsrClient?>((ref) {

@@ -1,3 +1,5 @@
+import '../../../domain/models/knowledge_models.dart';
+
 /// 苏格拉底学习模式系统提示词
 ///
 /// 结合两层本地知识笔记：
@@ -36,18 +38,19 @@ class StudyModePrompt {
 - 严禁虚伪夸夸腔：绝对不说“问得好！”“太棒了！”“完全正确！”“非常深刻！”“你一下就抓到本质了！”等套话；答对了就平实承接（如“对，就是这个理”“没错，顺着往下想”）。
 - 严禁油腻与轻浮口癖：不用“咱”、“咱们”，不用“先不管听着多高级”、“说白了就是”；语气平实诚恳，自然交流。
 - 严禁公文与列表腔：不用“首先、其次、最后、总而言之、值得注意的是”，不要动辄给词语加粗，不要用机械模板标题（如“【核心原理】”），不要滥用感叹号和 Emoji。
-- 篇幅精炼：每轮控制在 80 到 200 个汉字左右，短句自然停顿，读出来顺耳不端着。
-- 代码与公式克制：除非用户明确要求写代码或列公式，否则用大白话讲清思路。
+- 篇幅精炼：每轮控制在 80 到 200 个汉字左右，短句自然停顿，读出来顺耳不端着；若包含代码示例，文字解释保持精炼，代码保持短小聚焦。
+- 代码与公式克制：非编程类主题用大白话讲清思路，不堆砌公式；学习编程、语法、算法或代码类知识时，不要只空讲抽象概念，尽量结合极简短小的代码示例（3 到 8 行）对照讲解，并务必放在带语言标识的 Markdown 代码块（如 ```cpp）中。
 - 图示克制：不画复杂图表；仅当涉及流程或调用链且用户卡壳时，可用 1 到 3 行极简箭头链（如 `步骤A → 步骤B → 步骤C`）辅助理顺。
 - 启发提问聚焦收敛：全文只在最后收尾时抛出【且仅抛出 1 个】核心问题，直接自然承接在最后一句，不要编号列多个问题，严禁连珠炮反问。
 ''';
 
-  /// 组装带长期知识地图与前文压缩摘要的完整系统提示词
+  /// 组装带长期知识地图、分阶精通画像与前文压缩摘要的完整系统提示词
   static String buildSystemPrompt({
     String? knowledgeIndex,
     String? rollingSummary,
     String? focusedDocTitle,
     String? focusedDocContent,
+    MasteryProfile? activeMasteryProfile,
     bool webSearchEnabled = false,
   }) {
     final buf = StringBuffer(systemPrompt.trim());
@@ -59,6 +62,13 @@ class StudyModePrompt {
         ..writeln('## 联网核实能力（已开启）')
         ..writeln('- 你已接入实时联网搜索与网页阅读能力。遇到近期新闻、实时数据、具体人物动态、版本更新或用户贴出的网页链接时，优先联网核实事实后再用苏格拉底方式聊透，切勿凭旧记忆猜测或谎称自己不能联网。');
     }
+
+    buf
+      ..writeln()
+      ..writeln()
+      ..writeln('## 本地知识库操作能力（已接入）')
+      ..writeln('- 客户端支持直接读写用户的本地 `docs/<slug>.md` 与 `KNOWLEDGE.md`，绝不要声称“没有读写本地文件的权限”或让用户手动复制粘贴到文件。')
+      ..writeln('- 若用户在对话中明确要求新建、拆分、合并、修改或删除某个知识库专题，请用简短平实的口语回应（告知正在帮他整理），并在回复最末尾单独另起一行附上 `[KB_ACTION: <一句清晰的操作指令>]`（客户端会自动剥离该标记并完成实际落盘）。');
 
     final index = knowledgeIndex?.trim() ?? '';
     if (index.isNotEmpty) {
@@ -92,6 +102,62 @@ class StudyModePrompt {
         ..writeln(docBody);
     }
 
+    if (activeMasteryProfile != null) {
+      buf.writeln(_buildMasteryGuidance(activeMasteryProfile));
+    }
+
+    return buf.toString();
+  }
+
+  static String _buildMasteryGuidance(MasteryProfile profile) {
+    final activeNode = profile.activeNode;
+    final strategy = switch (profile.level) {
+      MasteryLevel.beginner =>
+        '当前处于【L1 入门】：用零基础能秒懂的生活常识建立最小心智闭环（若是编程/实操类可配 3~5 行极简对比示例，若是商业/人文类配极简日常案例），一次只推一小步，绝不堆砌高阶术语。',
+      MasteryLevel.intermediate =>
+        '当前处于【L2 进阶】：聚焦该领域的核心规则、适用边界与常见新手误区，通过典型反例或对比场景引导用户分辨“为什么这样成立、换个条件就失效”。',
+      MasteryLevel.advanced =>
+        '当前处于【L3 高级】：深入底层机理与复杂情境诊断，给出贴近实战的异常案例或关键片段，引导用户从底层因果链自主定位根因并提出修正方案。',
+      MasteryLevel.expert =>
+        '当前处于【L4 专家】：聚焦没有唯一标准答案的多目标权衡与跨场景迁移（如效率 vs 成本、短期收益 vs 长期风险、复杂度 vs 可靠性），通过实战决策辩论与费曼级降维反讲严格把关。',
+    };
+
+    final buf = StringBuffer()
+      ..writeln()
+      ..writeln('---')
+      ..writeln(
+        '## 当前系统精通路线（${profile.subjectName} · ${profile.level.label} · ${profile.score}%）',
+      );
+    if (profile.targetGoal.isNotEmpty) {
+      buf.writeln('- 学习终极目标：${profile.targetGoal}');
+    }
+    if (activeNode != null) {
+      buf.writeln(
+        '- 本轮主攻关隘：[${activeNode.level.label}] ${activeNode.title}'
+        '${activeNode.focusGoal.isNotEmpty ? '（目标：${activeNode.focusGoal}）' : ''}',
+      );
+    }
+    if (profile.strengths.isNotEmpty) {
+      buf.writeln(
+        '- 已验证掌握（直接跳过基础科普，可作为类比跳板）：${profile.strengths.join('、')}',
+      );
+    }
+    if (profile.weaknesses.isNotEmpty) {
+      buf.writeln('- 近期暴露短板（优先靶向补齐）：${profile.weaknesses.join('、')}');
+    }
+    if (profile.roadmap.isNotEmpty) {
+      final roadmapSummary = profile.roadmap
+          .map((n) => '[${n.status.label}]${n.title}')
+          .join(' → ');
+      buf.writeln('- 内部动态路线全貌：$roadmapSummary');
+    }
+    buf.writeln('- 分阶教学策略：$strategy');
+    buf.writeln(
+      '- 水平反馈原则：平时对话无需主动报等级或百分比；若用户主动询问“我现在是什么水平/学到哪了/后面学什么”，请结合上述真实画像与路线如实回答（讲清当前阶段、已掌握强项、暴露短板及下一步重心）。',
+    );
+    buf.writeln(
+      '- 上下文切换原则：仅当用户当前对话属于「${profile.subjectName}」领域时采用上述路线引导；若用户临时转聊其他无关话题，自然顺应新话题回应，勿生硬拉回。',
+    );
     return buf.toString();
   }
 
